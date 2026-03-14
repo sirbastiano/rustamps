@@ -1,0 +1,27 @@
+*.mat
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+.tmp/
+.tmp_pytest/
+.runs/
+.vscode/
+.DS_Store
+
+# Local agent/runtime state
+.ralph/
+
+# Generated metadata
+*.egg-info/
+
+# Large repo-only assets not shipped in the package
+inputs_and_outputs/
+tmp/
+StaMPS/
+
+# Keep release artifacts visible in this repo
+!dist/
+!dist/*.whl
+!dist/*.tar.gz
