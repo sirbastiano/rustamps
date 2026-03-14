@@ -21,10 +21,10 @@
 <p><strong>Return</strong>: <span class="code-inline">RunConfig</span>.</p>
 <p><strong>Exceptions</strong>: ConfigError for missing file, invalid top-level object, bad section types, unsupported extension.</p>
 <p><strong>Side effects</strong>: reads file from disk.</p>
-<p><strong>Inferred</strong>: Unknown keys are silently ignored by dataclass constructor behavior in nested sections.</p>
+<p><strong>Inferred</strong>: Unknown keys in nested sections raise constructor errors; callers should treat extra config fields as invalid input.</p>
 </section>
 <section class="card"><h2>Example</h2><pre><button class="copy-btn">Copy</button><code class="language-python">from pathlib import Path
 from pystamps.config import load_config
-cfg = load_config(Path("docs/runtime.yaml"))
+cfg = load_config(Path("config.yaml"))
 print(cfg.runtime.backend)
 </code></pre></section></main></div></body></html>

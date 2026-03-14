@@ -1,6 +1,6 @@
 # Release Process
 
-`pystamps` releases are manual and tag-driven. The preferred entry points are the `Makefile` targets in the repo root.
+`pystamps` releases are manual and tag-driven. This standalone repo uses direct `uv`/Python packaging commands rather than a tracked `Makefile`.
 
 ## Prerequisites
 
@@ -15,19 +15,23 @@
 1. Sync the maintainer environment:
 
    ```bash
-   make sync
+   uv sync
    ```
 
 2. Run the test gate:
 
    ```bash
-   make test
+   uv run pytest -q
    ```
 
 3. Run the strict parity gate:
 
    ```bash
-   make audit
+   uv run python scripts/validate_audit.py \
+     --datasets \
+       inputs_and_outputs/InSAR_dataset_test_stage8diag \
+       inputs_and_outputs/InSAR_dataset_test \
+     --output inputs_and_outputs/validation_runs/latest_audit.json
    ```
 
 4. Create and push a release tag using the version form `vX.Y.Z`.
@@ -35,25 +39,25 @@
 5. Build the release artifacts from the tagged commit:
 
    ```bash
-   make build
+   uv run --with build python -m build --sdist --wheel
    ```
 
 6. Validate the built artifacts:
 
    ```bash
-   make dist-check
+   uv run --with twine python -m twine check dist/*
    ```
 
 7. Upload to TestPyPI for rehearsal when needed:
 
    ```bash
-   make publish-testpypi
+   uv run --with twine python -m twine upload --repository testpypi dist/*
    ```
 
 8. Upload the final artifacts to PyPI:
 
    ```bash
-   make publish-pypi
+   uv run --with twine python -m twine upload dist/*
    ```
 
 ## Release Requirements

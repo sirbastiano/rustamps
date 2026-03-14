@@ -23,33 +23,37 @@
 
     <section class="card">
       <h2>Running tests</h2>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make test</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pytest -q</code></pre>
-      <p>The project does not include a large test suite in-tree in this snapshot; command entries from docs are retained for maintainers.</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pytest -q tests/test_dataset.py</code></pre>
+      <p>The repository includes committed unit tests. Dataset-backed parity tests are kept in-tree as optional checks and skip cleanly when the local validation datasets are absent.</p>
     </section>
 
     <section class="card">
       <h2>Test structure</h2>
       <ul>
-        <li>Unit-level checks are expected around config loading and dataset discovery.</li>
-        <li>Functional checks are typically stage-contract driven via verification artifacts.</li>
-        <li>Parity checks are orchestrated through scripts and are not part of this API surface.</li>
+        <li>Default unit tests cover config loading, dataset discovery, verification classification, acceleration helpers, and Stage-7 helper math.</li>
+        <li>Dataset-backed parity tests and audits require local inputs under <span class="code-inline">inputs_and_outputs/</span> and are not part of the minimal fresh-clone contract.</li>
+        <li>Parity checks are orchestrated through scripts and CLI workflows rather than through package import APIs alone.</li>
       </ul>
     </section>
 
     <section class="card">
       <h2>Coverage</h2>
-      <p>Coverage is inferred via CI quality gates and project <span class="code-inline">make audit</span> workflows; direct line-coverage is not exposed by this module set.</p>
+      <p>There is no tracked CI workflow or Makefile in this standalone repo snapshot. Validation is driven directly through <span class="code-inline">uv run pytest</span>, <span class="code-inline">python -m build</span>, <span class="code-inline">twine check</span>, and the parity audit scripts.</p>
       <div class="callout info">In-code assertions and explicit exceptions define many behavior guarantees where test coverage is expected to assert failure conditions.</div>
     </section>
 
     <section class="card">
       <h2>Validation workflow</h2>
       <p>Stage verification contract and audit metadata are represented by <span class="code-inline">pystamps.parity_contract</span> constants and exported helpers.</p>
+      <p>The parity audit requires local validation datasets. When those datasets are not present, use the default unit test slice instead of the audit commands below.</p>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">python - <<'PY'
 from pystamps.parity_contract import build_parity_contract
 print(build_parity_contract('inputs_and_outputs'))
 PY</code></pre>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run python scripts/validate_audit.py \
+  --datasets inputs_and_outputs/InSAR_dataset_test \
+  --output inputs_and_outputs/validation_runs/latest_audit.json</code></pre>
     </section>
   </main>
 </div>

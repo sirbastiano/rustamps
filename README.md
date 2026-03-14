@@ -27,26 +27,27 @@ The wheel and sdist ship the `pystamps` Python package only. Large datasets unde
 ## Development Setup
 
 ```bash
-make sync
+uv sync
 ```
 
-Core maintainer targets:
+Core validation commands:
 
 ```bash
-make test
-make audit
-make build
-make dist-check
+uv run pytest -q
+uv run python scripts/validate_audit.py \
+  --datasets inputs_and_outputs/InSAR_dataset_test
+uv run --with build python -m build --sdist --wheel
+uv run --with twine python -m twine check dist/*
 ```
 
-Release uploads:
+Manual release uploads:
 
 ```bash
-make publish-testpypi
-make publish-pypi
+uv run --with twine python -m twine upload --repository testpypi dist/*
+uv run --with twine python -m twine upload dist/*
 ```
 
-The `Makefile` wraps the release workflow documented in [docs/release.md](docs/release.md).
+The standalone repo uses direct `uv` commands; there is no tracked `Makefile` in this snapshot.
 
 ## What It Does
 
@@ -124,18 +125,16 @@ pystamps --config accel.yaml run --dataset /path/to/dataset --start-step 1 --end
 Strict parity audit:
 
 ```bash
-make audit
-```
-
-Equivalent direct command:
-
-```bash
 uv run python scripts/validate_audit.py \
   --datasets \
     inputs_and_outputs/InSAR_dataset_test_stage8diag \
     inputs_and_outputs/InSAR_dataset_test \
   --output inputs_and_outputs/validation_runs/latest_audit.json
 ```
+
+- `scripts/validate_audit.py` is the supported unattended audit entrypoint.
+- The audit validates both required datasets before verification begins and exits non-zero with a missing-dataset report if either path is absent.
+- `latest_audit.json` records the contract, per-dataset audits, `failed_workflows`, `completed`, `interrupted`, and `ok`.
 
 Benchmark runner:
 
@@ -154,20 +153,20 @@ uv run python scripts/benchmark_backends.py \
 Create release artifacts:
 
 ```bash
-make build
+uv run --with build python -m build --sdist --wheel
 ```
 
 Check release artifacts:
 
 ```bash
-make dist-check
+uv run --with twine python -m twine check dist/*
 ```
 
 Manual upload targets:
 
 ```bash
-make publish-testpypi
-make publish-pypi
+uv run --with twine python -m twine upload --repository testpypi dist/*
+uv run --with twine python -m twine upload dist/*
 ```
 
 Build outputs are written to `dist/` as one wheel and one sdist. The release process is manual and tag-driven; see [docs/release.md](docs/release.md) for the full checklist.
