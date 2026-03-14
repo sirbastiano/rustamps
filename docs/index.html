@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>pySTAMPS Documentation</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
+</head>
+<body>
+<div class="site">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><h1>pySTAMPS Docs</h1></div>
+    <small>Python-first StaMPS migration runtime</small>
+    <nav>
+      <div class="nav-group">
+        <h2>Guide</h2>
+        <ul class="nav-list">
+          <li><a href="index.html">Introduction</a></li>
+          <li><a href="installation.html">Installation</a></li>
+          <li><a href="quickstart.html">Quick Start</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="configuration.html">Configuration</a></li>
+          <li><a href="usage.html">Usage</a></li>
+          <li><a href="testing.html">Testing</a></li>
+          <li><a href="contributing.html">Contributing</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+      <div class="nav-group">
+        <h2>API</h2>
+        <ul class="nav-list">
+          <li><a href="api/pystamps.html">Package</a></li>
+          <li><a href="api/configuration.html">config</a></li>
+          <li><a href="api/cli.html">cli</a></li>
+          <li><a href="api/status.html">status</a></li>
+          <li><a href="api/verify.html">verify</a></li>
+          <li><a href="api/parity_contract.html">parity_contract</a></li>
+          <li><a href="api/io_dataset.html">io.dataset</a></li>
+          <li><a href="api/io_mat.html">io.mat</a></li>
+          <li><a href="api/runtime.html">runtime</a></li>
+          <li><a href="api/kernels.html">kernels</a></li>
+          <li><a href="api/pipeline_types.html">pipeline.types</a></li>
+          <li><a href="api/pipeline_stages.html">pipeline.stages</a></li>
+          <li><a href="api/pipeline_ported.html">pipeline.ported</a></li>
+          <li><a href="api/compat_legacy.html">compat.legacy</a></li>
+        </ul>
+      </div>
+    </nav>
+  </aside>
+  <main class="content">
+    <div class="breadcrumb">Home</div>
+    <h1>pySTAMPS Documentation</h1>
+    <p>pySTAMPS is a Python-first StaMPS migration runtime for INSAR processing workflows. This site documents installation, architecture, configuration, and the API surface used by the command line and library modules.</p>
+
+    <div class="card">
+      <h2>Project Snapshot</h2>
+      <div class="grid">
+        <div>
+          <p>Project and primary language: <span class="code-inline">Python 3.12+</span>.</p>
+          <p>Primary goals:</p>
+          <ul>
+            <li>Dataset discovery and stage status inspection</li>
+            <li>Pipeline execution for stages <span class="code-inline">1..8</span></li>
+            <li>Verification against golden datasets</li>
+            <li>Parity audit tooling and CLI entry points</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Key features</h3>
+          <ul>
+            <li>Hybrid thread/process execution</li>
+            <li>Optional GPU kernels with CuPy fallback</li>
+            <li>Configurable tolerances and stage control</li>
+            <li>Production-friendly static docs output</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <section class="card">
+      <h2>High-level architecture summary</h2>
+      <p>The runtime is organized as layered Python modules: CLI orchestration, pipeline scheduler, I/O helpers, typed execution, and numerical kernels. Artifacts are produced as <span class="code-inline">.mat</span> files and reused across merged/patch stages.</p>
+      <p>See <a href="architecture.html">Architecture</a> for details and diagram specs.</p>
+    </section>
+
+    <section class="card">
+      <h2>Quick links</h2>
+      <ul>
+        <li><a href="quickstart.html">Run the first dataset check</a></li>
+        <li><a href="usage.html">Command usage examples</a></li>
+        <li><a href="api/cli.html">CLI API Reference</a></li>
+      </ul>
+    </section>
+
+    <section class="callout tip">
+      <strong>Note:</strong> This documentation is static HTML and can be deployed directly to GitHub Pages without build tooling.
+    </section>
+
+    <p class="footer">Last updated: 2026-03-13</p>
+  </main>
+</div>
+</body>
+</html>

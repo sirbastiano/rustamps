@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick Start - pySTAMPS Docs</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
+</head>
+<body>
+<div class="site">
+  <aside class="sidebar">
+    <div class="logo"><span class="logo-mark"></span><h1>pySTAMPS Docs</h1></div>
+    <small>Quick Start</small>
+    <nav>
+      <div class="nav-group"><h2>Guide</h2><ul class="nav-list"><li><a href="index.html">Introduction</a></li><li><a href="installation.html">Installation</a></li><li><a href="quickstart.html">Quick Start</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="configuration.html">Configuration</a></li><li><a href="usage.html">Usage</a></li><li><a href="testing.html">Testing</a></li><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+      <div class="nav-group"><h2>API</h2><ul class="nav-list"><li><a href="api/pystamps.html">Package</a></li><li><a href="api/configuration.html">config</a></li><li><a href="api/cli.html">cli</a></li><li><a href="api/status.html">status</a></li><li><a href="api/verify.html">verify</a></li><li><a href="api/parity_contract.html">parity_contract</a></li><li><a href="api/io_dataset.html">io.dataset</a></li><li><a href="api/io_mat.html">io.mat</a></li><li><a href="api/runtime.html">runtime</a></li><li><a href="api/kernels.html">kernels</a></li><li><a href="api/pipeline_types.html">pipeline.types</a></li><li><a href="api/pipeline_stages.html">pipeline.stages</a></li><li><a href="api/pipeline_ported.html">pipeline.ported</a></li><li><a href="api/compat_legacy.html">compat.legacy</a></li></ul></div>
+    </nav>
+  </aside>
+  <main class="content">
+    <div class="breadcrumb">Home / Quick Start</div>
+    <h1>Quick Start</h1>
+
+    <section class="card">
+      <h2>Minimal example</h2>
+      <p>Inspect a dataset, run the full stage set in dry-run mode, then execute stages 1..3:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">pystamps status --dataset inputs_and_outputs/InSAR_dataset_test
+pystamps run --dataset inputs_and_outputs/InSAR_dataset_test --start-step 1 --end-step 8 --dry-run
+pystamps run --dataset inputs_and_outputs/InSAR_dataset_test --config docs/runtime.yaml --start-step 1 --end-step 3</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>Common workflow</h2>
+      <ol>
+        <li>Prepare config and dataset path.</li>
+        <li>Run <span class="code-inline">status</span> for baseline stage inference.</li>
+        <li>Use <span class="code-inline">--dry-run</span> to confirm intended targets.</li>
+        <li>Run selected stages with worker overrides if needed.</li>
+        <li>Verify outputs against a known golden dataset.</li>
+      </ol>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">pystamps run --dataset DATASET_DIR --start-step 1 --end-step 8 --io-workers 8 --cpu-workers 4
+pystamps verify --run DATASET_DIR --golden /path/to/golden</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>CLI usage (if script-based workflow preferred)</h2>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps status --dataset PATH
+uv run pystamps run --dataset PATH --start-step 2 --end-step 6
+uv run pystamps verify --run PATH --golden PATH
+uv run pystamps list-legacy --stamps-root /path/to/StaMPS</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>CLI flags by command</h2>
+      <ul>
+        <li><span class="code-inline">status</span>: <span class="code-inline">--dataset</span></li>
+        <li><span class="code-inline">run</span>: <span class="code-inline">--dataset</span>, <span class="code-inline">--start-step</span>, <span class="code-inline">--end-step</span>, <span class="code-inline">--dry-run</span>, <span class="code-inline">--io-workers</span>, <span class="code-inline">--cpu-workers</span></li>
+        <li><span class="code-inline">verify</span>: <span class="code-inline">--run</span>, <span class="code-inline">--golden</span></li>
+        <li><span class="code-inline">list-legacy</span>: <span class="code-inline">--stamps-root</span> or <span class="code-inline">STAMPS_ROOT</span></li>
+      </ul>
+    </section>
+  </main>
+</div>
+</body>
+</html>

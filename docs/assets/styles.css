@@ -1,0 +1,212 @@
+:root {
+  --bg-primary: #0f1117;
+  --bg-surface: #161a24;
+  --bg-surface-2: #1d2330;
+  --text-primary: #e8ecf6;
+  --text-muted: #98a3b8;
+  --accent: #66a1ff;
+  --accent-soft: #8ec5ff;
+  --border-subtle: #2a3244;
+  --code-bg: #0c1020;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: Inter, "Alegreya Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: linear-gradient(180deg, #0d1018 0%, #0f1117 90%);
+  color: var(--text-primary);
+}
+
+.site {
+  display: grid;
+  grid-template-columns: 290px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow: auto;
+  padding: 1.25rem;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.logo-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: linear-gradient(120deg, var(--accent), #7fffd4);
+}
+
+.sidebar h1 { margin: 0; font-size: 1.15rem; }
+.sidebar small { color: var(--text-muted); }
+
+.nav-group { margin-bottom: 1rem; }
+.nav-group h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 0.8rem 0 0.4rem; }
+.nav-list { list-style: none; padding: 0; margin: 0; }
+.nav-list li { margin: 0.18rem 0; }
+.nav-list a {
+  color: var(--text-primary);
+  text-decoration: none;
+  display: block;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+}
+.nav-list a:hover,
+.nav-list a:focus { background: var(--bg-surface-2); }
+
+.content {
+  padding: 1.4rem;
+}
+
+.breadcrumb {
+  color: var(--text-muted);
+  margin-bottom: 0.8rem;
+}
+
+.content h1, .content h2, .content h3, .content h4 {
+  font-family: "Alegreya Sans", "Georgia", serif;
+  margin-top: 0.8rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+}
+
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 0.8rem 0;
+}
+
+.callout {
+  border-left: 4px solid;
+  padding: 0.8rem 1rem;
+  margin: 0.8rem 0;
+  border-radius: 8px;
+  background: #171d28;
+}
+.callout.info { border-left-color: #4ea1ff; }
+.callout.warning { border-left-color: #f4b45f; }
+.callout.tip { border-left-color: #6dd58d; }
+.callout.danger { border-left-color: #ff6b6b; }
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #141824;
+  min-width: 640px;
+}
+th, td {
+  text-align: left;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+thead th { background: var(--bg-surface-2); }
+
+pre {
+  position: relative;
+  background: var(--code-bg);
+  color: #dfe7ff;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #263247;
+  overflow: auto;
+}
+
+button.copy-btn {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  background: #232a3b;
+  color: #dbe6ff;
+  border: 1px solid #36415a;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+pre code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+
+.api-section {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin: 0.7rem 0;
+  background: #171b29;
+}
+.api-section summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.7rem;
+  font-weight: 600;
+}
+.api-section summary::-webkit-details-marker { display: none; }
+.api-section .api-body { padding: 0 1rem 1rem; }
+
+.api-signature {
+  background: #0b1220;
+  border: 1px dashed #3e4a64;
+  border-radius: 6px;
+  padding: 0.6rem;
+  display: inline-block;
+}
+
+.code-inline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.93rem;
+  color: #9ad0ff;
+}
+
+.tag {
+  display: inline-block;
+  background: #1d2c4d;
+  color: #c8dcff;
+  border: 1px solid #35508a;
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  margin-right: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.diagram-spec {
+  background: #111625;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 0.9rem;
+}
+
+.footer {
+  color: var(--text-muted);
+  margin-top: 2rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.9rem;
+}
+
+@media (max-width: 1100px) {
+  .site { grid-template-columns: 1fr; }
+  .sidebar { height: auto; position: relative; }
+  .grid { grid-template-columns: 1fr; }
+}
