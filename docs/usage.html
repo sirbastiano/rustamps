@@ -69,7 +69,7 @@
     stage8_edge_noise: native</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config native-kernels.yaml run --dataset PATH --start-step 2 --end-step 8</code></pre>
       <p>Use <span class="code-inline">python</span> for reference kernels, <span class="code-inline">native</span> for Rust/CPU, and <span class="code-inline">cuda</span> where the CUDA provider is registered.</p>
-      <p>Pipeline stages with existing expected artifacts are skipped. Use an incomplete run copy for pipeline execution, or use the benchmark/direct-kernel examples to exercise optimized kernels on the checked-in golden data.</p>
+      <p>Pipeline stages with existing expected artifacts are skipped. Use an incomplete run copy for pipeline execution, or use the benchmark/direct-kernel examples to exercise optimized kernels.</p>
       <h3>Direct kernel API on repo data</h3>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run python - &lt;&lt;'PY'
 from pathlib import Path
@@ -78,7 +78,7 @@ import numpy as np
 from pystamps.io.mat import read_mat
 from pystamps.kernels import run_stage8_edge_noise_kernel
 
-root = Path("inputs_and_outputs/InSAR_dataset_test_stage8diag")
+root = Path("/path/to/reference_dataset")
 uw_grid = read_mat(root / "uw_grid.mat")
 uw_interp = read_mat(root / "uw_interp.mat")
 

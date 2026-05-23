@@ -29,11 +29,11 @@
     <section class="card">
       <h2>CLI verification</h2>
       <p>Use <span class="code-inline">pystamps verify</span> once a run copy exists.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify --run /tmp/run-copy --golden /path/to/reference</code></pre>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify --run /path/to/run_copy --golden /path/to/reference_dataset</code></pre>
       <ul>
         <li>Returns <span class="code-inline">0</span> when all comparisons pass and non-zero when mismatches are found.</li>
         <li>Compares numeric MATLAB payloads with tolerance settings and classifies failure families by artifact.</li>
-        <li>Use repository-specific shortcuts only for fixed in-repo references.</li>
+        <li>Use repository shortcuts only for fixed in-repo references.</li>
       </ul>
     </section>
 
@@ -49,17 +49,17 @@
       <pre><button class="copy-btn">Copy</button><code class="language-bash">make audit</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
   uv run python scripts/validate_audit.py \
-    --output inputs_and_outputs/validation_runs/latest_audit.json</code></pre>
+    --output /path/to/latest_audit.json</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">RUN_COPY="$(uv run python - <<'PY'
 import json
 from pathlib import Path
 
-payload = json.loads(Path('inputs_and_outputs/validation_runs/latest_audit.json').read_text(encoding='utf-8'))
-print(next(audit['run_root'] for audit in payload['audits'] if audit['dataset'] == 'InSAR_dataset_test'))
+payload = json.loads(Path('/path/to/latest_audit.json').read_text(encoding='utf-8'))
+print(payload['audits'][0]['run_root'])
 PY
 )"
 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  uv run pystamps verify --run "$RUN_COPY" --golden ./inputs_and_outputs/InSAR_dataset_test</code></pre>
+  uv run pystamps verify --run "$RUN_COPY" --golden /path/to/reference_dataset</code></pre>
       <ul>
         <li>Fresh audit output should be treated as active input for subsequent checks.</li>
         <li>The required done-gate datasets are owned by <span class="code-inline">pystamps/data/audited_workflow_manifest.json</span>, including the small-baseline stage-7 audit targets.</li>
