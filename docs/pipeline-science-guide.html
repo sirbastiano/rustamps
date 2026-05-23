@@ -106,10 +106,10 @@ uv run pystamps describe-backends</code></pre>
 python -m pip install -e ".[dev]"
 cargo --version</code></pre>
       <p>Run on a copy:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">cp -a /path/to/source_dataset /tmp/pystamps_run
-uv run pystamps status --dataset /tmp/pystamps_run
-uv run pystamps run --dataset /tmp/pystamps_run --start-step 1 --end-step 8 --dry-run
-uv run pystamps run --dataset /tmp/pystamps_run --start-step 1 --end-step 8</code></pre>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">cp -a /path/to/source_dataset /path/to/run_dataset
+uv run pystamps status --dataset /path/to/run_dataset
+uv run pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8 --dry-run
+uv run pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8</code></pre>
     </section>
 
     <section class="card">
@@ -172,7 +172,7 @@ uv run pystamps describe-backends</code></pre>
   stage7_chunk_ps: 100000
   stage8_chunk_edges: 200000</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config native-kernels.yaml run \
-  --dataset /tmp/pystamps_run \
+  --dataset /path/to/run_dataset \
   --start-step 2 --end-step 8</code></pre>
       <p>Current optimized kernel names are <span class="code-inline">stage2_grid_accumulate</span>, <span class="code-inline">stage2_histogram</span>, <span class="code-inline">stage2_topofit</span>, <span class="code-inline">stage2_topofit_row_invariant</span>, <span class="code-inline">stage2_topofit_coh_row_invariant</span>, <span class="code-inline">stage4_edge_stats</span>, <span class="code-inline">stage7_scla</span>, and <span class="code-inline">stage8_edge_noise</span>.</p>
     </section>
@@ -181,7 +181,7 @@ uv run pystamps describe-backends</code></pre>
       <h2>Python API examples</h2>
       <pre><button class="copy-btn">Copy</button><code class="language-python">from pystamps.status import collect_status
 
-status = collect_status("/tmp/pystamps_run")
+status = collect_status("/path/to/run_dataset")
 print(status.merged_stage)
 for patch in status.patch_statuses:
     print(patch.patch, patch.stage)</code></pre>
@@ -192,7 +192,7 @@ from pystamps.pipeline.stages import run_pipeline
 from pystamps.pipeline.types import PipelineContext
 
 context = PipelineContext(
-    dataset_root=Path("/tmp/pystamps_run"),
+    dataset_root=Path("/path/to/run_dataset"),
     run_config=RunConfig(),
     start_step=6,
     end_step=8,
@@ -205,13 +205,13 @@ report = run_pipeline(context)</code></pre>
       <h2>Verify parity and benchmark speed</h2>
       <p>Use verification or audit evidence for parity claims.</p>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify \
-  --run /tmp/pystamps_run \
-  --golden inputs_and_outputs/InSAR_dataset_test_stage8diag
+  --run /path/to/run_dataset \
+  --golden /path/to/reference_dataset
 make audit</code></pre>
       <p>Use repeatable benchmarks for speed claims.</p>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">make benchmark
 uv run python scripts/benchmark_backends.py \
-  --dataset inputs_and_outputs/InSAR_dataset_test_stage8diag \
+  --dataset /path/to/reference_dataset \
   --start-step 1 --end-step 8 \
   --repeat 3 --warmup 1</code></pre>
     </section>

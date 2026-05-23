@@ -5,7 +5,7 @@ This guide teaches the two things a new user needs at the same time:
 - the scientific meaning of the StaMPS-style persistent-scatterer workflow
 - the practical pySTAMPS commands used to inspect, run, accelerate, and verify that workflow
 
-If you only need commands, start with [../howtorun.md](../howtorun.md) or [quickstart.html](quickstart.html). If you need to understand why the commands exist and what each stage produces, read this guide first.
+If you only need commands, start with [quickstart.html](quickstart.html). If you need to understand why the commands exist and what each stage produces, read this guide first.
 
 ## What pySTAMPS is
 
@@ -147,18 +147,18 @@ tools:
 Use a copy, not your only original dataset:
 
 ```bash
-cp -a /path/to/source_dataset /tmp/pystamps_run
-uv run pystamps status --dataset /tmp/pystamps_run
-uv run pystamps run --dataset /tmp/pystamps_run --start-step 1 --end-step 8 --dry-run
-uv run pystamps run --dataset /tmp/pystamps_run --start-step 1 --end-step 8
+cp -a /path/to/source_dataset /path/to/run_dataset
+uv run pystamps status --dataset /path/to/run_dataset
+uv run pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8 --dry-run
+uv run pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8
 ```
 
 If you are using the repo diagnostic data, a smaller late-stage run is often more practical:
 
 ```bash
-cp -a inputs_and_outputs/InSAR_dataset_test_stage8diag /tmp/pystamps_stage8diag_run
-uv run pystamps status --dataset /tmp/pystamps_stage8diag_run
-uv run pystamps run --dataset /tmp/pystamps_stage8diag_run --start-step 6 --end-step 8
+cp -a /path/to/reference_dataset /path/to/run_dataset
+uv run pystamps status --dataset /path/to/run_dataset
+uv run pystamps run --dataset /path/to/run_dataset --start-step 6 --end-step 8
 ```
 
 If the output says `skipped_existing`, the requested stage already has its expected artifacts in that copied dataset.
@@ -326,7 +326,7 @@ Run with the config:
 
 ```bash
 uv run pystamps --config native-kernels.yaml run \
-  --dataset /tmp/pystamps_run \
+  --dataset /path/to/run_dataset \
   --start-step 2 --end-step 8
 ```
 
@@ -347,7 +347,7 @@ Inspect dataset status:
 ```python
 from pystamps.status import collect_status
 
-status = collect_status("/tmp/pystamps_run")
+status = collect_status("/path/to/run_dataset")
 print(status.merged_stage)
 for patch in status.patch_statuses:
     print(patch.patch, patch.stage)
@@ -363,7 +363,7 @@ from pystamps.pipeline.stages import run_pipeline
 from pystamps.pipeline.types import PipelineContext
 
 context = PipelineContext(
-    dataset_root=Path("/tmp/pystamps_run"),
+    dataset_root=Path("/path/to/run_dataset"),
     run_config=RunConfig(),
     start_step=6,
     end_step=8,
@@ -396,8 +396,8 @@ Verification answers a practical question: does this run match a golden dataset 
 
 ```bash
 uv run pystamps verify \
-  --run /tmp/pystamps_run \
-  --golden inputs_and_outputs/InSAR_dataset_test_stage8diag
+  --run /path/to/run_dataset \
+  --golden /path/to/reference_dataset
 ```
 
 The repo-level parity audit is broader:
@@ -434,7 +434,7 @@ Or customize the benchmark:
 
 ```bash
 uv run python scripts/benchmark_backends.py \
-  --dataset inputs_and_outputs/InSAR_dataset_test_stage8diag \
+  --dataset /path/to/reference_dataset \
   --start-step 1 --end-step 8 \
   --repeat 3 --warmup 1
 ```

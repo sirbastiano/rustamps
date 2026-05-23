@@ -32,22 +32,22 @@
     <section class="card">
       <h2>Step 1: inspect the dataset</h2>
       <p>Start by asking pySTAMPS what it sees in the dataset root.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps status --dataset inputs_and_outputs/InSAR_dataset_test</code></pre>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps status --dataset /path/to/run_dataset</code></pre>
       <p>This command does not process the data. It reports the merged stage and patch stages it can infer from the artifacts already present.</p>
     </section>
 
     <section class="card">
       <h2>Step 2: dry-run the full pipeline</h2>
       <p>A dry-run is a safe rehearsal. It shows what pySTAMPS would do without executing the stages.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps run --dataset inputs_and_outputs/InSAR_dataset_test --start-step 1 --end-step 8 --dry-run</code></pre>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8 --dry-run</code></pre>
     </section>
 
     <section class="card">
       <h2>Step 3: run on a copy, not on your only original</h2>
       <p>pySTAMPS writes artifacts into the dataset tree. Make a run copy first.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">cp -a inputs_and_outputs/InSAR_dataset_test_stage8diag /tmp/pystamps_stage8diag_run
-uv run pystamps run --dataset /tmp/pystamps_stage8diag_run --start-step 6 --end-step 8</code></pre>
-      <div class="callout tip">For debugging, shorten the range. The checked-in diagnostic datasets already contain many outputs, so completed stages can report <span class="code-inline">skipped_existing</span>.</div>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">cp -a /path/to/run_source_dataset /path/to/run_dataset
+uv run pystamps run --dataset /path/to/run_dataset --start-step 6 --end-step 8</code></pre>
+      <div class="callout tip">For debugging, shorten the range. If the copied dataset already has outputs, completed stages can report <span class="code-inline">skipped_existing</span>.</div>
     </section>
 
     <section class="card">
@@ -71,15 +71,15 @@ uv run pystamps run --dataset /tmp/pystamps_stage8diag_run --start-step 6 --end-
   cpu_workers: 0
   stage7_chunk_ps: 100000
   stage8_chunk_edges: 200000</code></pre>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config native-kernels.yaml run --dataset /tmp/pystamps_stage8diag_run --start-step 2 --end-step 8</code></pre>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config native-kernels.yaml run --dataset /path/to/run_dataset --start-step 2 --end-step 8</code></pre>
       <div class="callout info">Use <span class="code-inline">python</span> for reference kernels and <span class="code-inline">native</span> for the compiled Rust/CPU kernels. Use <span class="code-inline">cuda</span> only when that kernel and CuPy are available.</div>
-      <p>If the copied dataset already contains the expected outputs, those stages report <span class="code-inline">skipped_existing</span>. To execute kernels through the pipeline, use a dataset copy that still needs those stage outputs. Use the benchmark or direct-kernel examples for repo golden data.</p>
+      <p>If the copied dataset already contains the expected outputs, those stages report <span class="code-inline">skipped_existing</span>. To execute kernels through the pipeline, use a dataset copy that still needs those stage outputs. Use the benchmark or direct-kernel examples for profiling.</p>
     </section>
 
     <section class="card">
       <h2>Step 5: validate and benchmark</h2>
-      <p>Verification compares your run copy to a golden dataset. Benchmarking records repeatable JSON/CSV timing evidence.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify --run /tmp/pystamps_stage8diag_run --golden inputs_and_outputs/InSAR_dataset_test_stage8diag
+      <p>Verification compares your run copy to a reference dataset. Benchmarking records repeatable JSON/CSV timing evidence.</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify --run /path/to/run_dataset --golden /path/to/reference_dataset
 make benchmark</code></pre>
     </section>
 
@@ -103,8 +103,8 @@ make benchmark</code></pre>
   stage2_checkpoint_interval: 1</code></pre>
       </article>
       <article class="action-card">
-        <h3>Need the visual flow?</h3>
-        <p><a href="https://www.figma.com/online-whiteboard/create-diagram/2cd2c194-7c86-4c16-9a10-d964fc5a1b40?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=&request_id=72140c10-d529-4949-8a78-a575e6a13883">Open the beginner workflow graph in Figma</a>.</p>
+        <h3>Need the execution map?</h3>
+        <p>Use the six-step flow above: inspect, dry-run, execute, verify, and benchmark. Repeat with narrower stage ranges as needed.</p>
       </article>
     </section>
 
