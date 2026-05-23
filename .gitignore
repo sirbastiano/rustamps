@@ -41,3 +41,6 @@ StaMPS/
 !dist/
 !dist/*.whl
 !dist/*.tar.gz
+
+.cache/
+summary_final_report.md
