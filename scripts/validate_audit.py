@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -172,10 +173,28 @@ def _validation_runs_root() -> Path:
 def _copy_dataset(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
+    if _clone_copytree(src, dst):
+        return
+    shutil.copytree(src, dst)
+
+
+def _clone_copytree(src: Path, dst: Path) -> bool:
+    if shutil.which("cp") is None:
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
     try:
-        shutil.copytree(src, dst, copy_function=os.link)
-    except OSError:
-        shutil.copytree(src, dst)
+        subprocess.run(
+            ["cp", "-cR", f"{src}/.", str(dst)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        if dst.exists():
+            shutil.rmtree(dst)
+        return False
+    return dst.exists()
 
 
 def _clean_outputs(dataset_root: Path, patterns: tuple[str, ...]) -> None:

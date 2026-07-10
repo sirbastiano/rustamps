@@ -123,6 +123,34 @@ Source and editable installs compile the native Rust/CPU extension. Install a Ru
 cargo --version
 ```
 
+Conda users can create an environment that includes Rust/Cargo:
+
+```bash
+conda env create -f environment.yml
+conda activate pystamps-rust
+python -m pip install -e ".[dev]"
+cargo check
+python setup.py build_ext --inplace
+pystamps describe-backends
+```
+
+After creating or updating the environment, run:
+
+```bash
+make native-conda-env-check
+make native-conda-check
+make native-conda-kernel-check
+```
+
+If `conda` is not on the noninteractive shell `PATH`, pass it explicitly, for example
+`make native-conda-kernel-check CONDA=/opt/miniconda3/bin/conda`.
+
+Update that environment later with:
+
+```bash
+conda env update -f environment.yml --prune
+```
+
 Optional GPU support uses the `gpu` extra:
 
 ```bash
@@ -132,7 +160,7 @@ python -m pip install -e ".[gpu]"
 Some full workflows also require external executables:
 
 - `triangle`
-- `snaphu`
+- `snaphu` for the legacy/fallback unwrap path when the native Stage 6 solver is unavailable or not selected
 
 You can override their paths in config:
 
@@ -221,7 +249,11 @@ Stage 2 estimates phase-model and coherence-like terms per candidate. These term
 The optimized native kernels are especially important here. Stage 2 has native implementations for:
 
 - `stage2_grid_accumulate`
+- `stage2_grid_indices`
 - `stage2_histogram`
+- `stage2_normalize_complex`
+- `stage2_normalize_phase_matrix`
+- `stage2_ph_weight_block`
 - `stage2_topofit`
 - `stage2_topofit_row_invariant`
 - `stage2_topofit_coh_row_invariant`
@@ -232,11 +264,13 @@ Use the Python backend for reference behavior and the native backend for compile
 
 Stage 3 uses stage-2 model and coherence outputs to choose candidate points worth keeping. It writes `select1.mat`, which records selected candidates and keep/reject decisions used by later patch stages.
 
+The `stage3_clap_filt_grid_stack`, `stage3_clap_filt_grid`, `stage3_clap_filt_patch_stack`, `stage3_clap_filt_patch`, `stage3_wrap_filt`, `stage3_wrap_filt_global`, `stage3_select_ifg_index`, and `stage3_coh_threshold` kernels support Python and native backends for CLAP stack filtering, CLAP grid filtering, multi-IFG patch CLAP filtering, single-patch CLAP filtering, local and global wrapped-phase filtering, deterministic IFG index selection, and coherence-threshold calculation used by Stage 3.
+
 ## Stage 4: weed noisy or redundant candidates
 
 Stage 4 removes poor or redundant selections. It uses candidate geometry and quality metrics to avoid carrying unstable points into the merged products.
 
-The `stage4_edge_stats` kernel supports Python and native backends. Where registered and available, the native backend is the optimized Rust/CPU path.
+The `stage4_adjacent_component_keep`, `stage4_duplicate_keep`, `stage4_phase_correction`, `stage4_weed_ifg_index`, and `stage4_edge_stats` kernels support Python and native backends. Where registered and available, the native backend is the optimized Rust/CPU path.
 
 ## Stage 5: promote and merge patches
 
@@ -244,9 +278,11 @@ Stage 5 is the transition from patch-local processing to dataset-level processin
 
 After stage 5, later stages work at the merged dataset root rather than independently inside each patch.
 
+The `stage5_duplicate_keep`, `stage5_format_merged_rc2`, `stage5_patch_keep_mask`, `stage5_rc2_correction`, and `stage5_ifg_std` kernels support Python and native backends for merged duplicate removal, patch overlap filtering, patch-level rc2 correction/promotion, merged rc2 formatting, and interferogram standard-deviation calculation.
+
 ## Stage 6: unwrap merged phase
 
-Stage 6 produces unwrapped phase products. It can call external tools such as `triangle` and `snaphu`, depending on the dataset and execution path.
+Stage 6 produces unwrapped phase products. The supported single-master 3D_FULL path uses native Rust helpers for grid-cell accumulation, unwrap/solve IFG-set selection, single-master IFG geometry, and the grid unwrap solver when available. `snaphu` remains a legacy/fallback executable, and `triangle` can still be used while building interpolation edges.
 
 Important outputs include:
 
@@ -290,45 +326,131 @@ runtime:
   backend: auto
   stage2_kernel_backend: python
   kernel_backend_overrides:
+    stage2_clap_filter_kernel: python
     stage2_grid_accumulate: python
+    stage2_grid_indices: python
     stage2_histogram: python
+    stage2_normalize_complex: python
+    stage2_normalize_phase_matrix: python
+    stage2_ph_weight_block: python
     stage2_topofit: python
-    stage2_topofit_row_invariant: python
     stage2_topofit_coh_row_invariant: python
+    stage2_topofit_row_invariant: python
+    stage3_clap_filt_grid: python
+    stage3_clap_filt_grid_stack: python
+    stage3_clap_filt_patch: python
+    stage3_coh_threshold: python
+    stage3_select_ifg_index: python
+    stage3_wrap_filt: python
+    stage3_wrap_filt_global: python
+    stage4_adjacent_component_keep: python
+    stage4_duplicate_keep: python
     stage4_edge_stats: python
+    stage4_phase_correction: python
+    stage4_weed_ifg_index: python
+    stage5_duplicate_keep: python
+    stage5_format_merged_rc2: python
+    stage5_ifg_std: python
+    stage5_patch_keep_mask: python
+    stage5_rc2_correction: python
+    stage6_estimate_la_error: python
+    stage6_extract_grid_values: python
+    stage6_grid_accumulate: python
+    stage6_prepare_cost_offsets: python
+    stage6_ps_grid_indices: python
+    stage6_reconstruct_ps_phase: python
+    stage6_select_ifgw: python
+    stage6_single_master_ifg_geometry: python
+    stage6_smooth_3d_full_single_master: python
+    stage6_unwrap_grid: python
+    stage6_unwrap_ifg_sets: python
+    stage7_center_to_reference: python
+    stage7_deramp_unwrapped_phase: python
+    stage7_mean_velocity_fit: python
     stage7_scla: python
+    stage7_scla_smooth: python
     stage8_edge_noise: python
+    stage8_weighted_lstsq: python
+    weighted_affine_fit: python
+    weighted_slope_fit: python
 ```
 
 Optimized native Rust/CPU config:
 
 ```yaml
 runtime:
-  backend: auto
+  backend: native
   stage2_kernel_backend: native
   stage2_native_threads: 0
   kernel_backend_overrides:
+    stage2_clap_filter_kernel: native
     stage2_grid_accumulate: native
+    stage2_grid_indices: native
     stage2_histogram: native
+    stage2_normalize_complex: native
+    stage2_normalize_phase_matrix: native
+    stage2_ph_weight_block: native
     stage2_topofit: native
-    stage2_topofit_row_invariant: native
     stage2_topofit_coh_row_invariant: native
+    stage2_topofit_row_invariant: native
+    stage3_clap_filt_grid: native
+    stage3_clap_filt_grid_stack: native
+    stage3_clap_filt_patch: native
+    stage3_clap_filt_patch_stack: native
+    stage3_coh_threshold: native
+    stage3_select_ifg_index: native
+    stage3_wrap_filt: native
+    stage3_wrap_filt_global: native
+    stage4_adjacent_component_keep: native
+    stage4_duplicate_keep: native
     stage4_edge_stats: native
+    stage4_phase_correction: native
+    stage4_weed_ifg_index: native
+    stage5_duplicate_keep: native
+    stage5_format_merged_rc2: native
+    stage5_ifg_std: native
+    stage5_patch_keep_mask: native
+    stage5_rc2_correction: native
+    stage6_estimate_la_error: native
+    stage6_extract_grid_values: native
+    stage6_grid_accumulate: native
+    stage6_prepare_cost_offsets: native
+    stage6_ps_grid_indices: native
+    stage6_reconstruct_ps_phase: native
+    stage6_select_ifgw: native
+    stage6_single_master_ifg_geometry: native
+    stage6_smooth_3d_full_single_master: native
+    stage6_unwrap_grid: native
+    stage6_unwrap_ifg_sets: native
+    stage7_center_to_reference: native
+    stage7_deramp_unwrapped_phase: native
+    stage7_mean_velocity_fit: native
     stage7_scla: native
+    stage7_scla_smooth: native
     stage8_edge_noise: native
-  io_workers: 8
+    stage8_weighted_lstsq: native
+    weighted_affine_fit: native
+    weighted_slope_fit: native
+  io_workers: 1
   cpu_workers: 0
   stage7_chunk_ps: 100000
   stage8_chunk_edges: 200000
 ```
 
+This profile uses `runtime.backend: native` to select compiled Rust/CPU kernels and run them in-process.
+The checked-in validation profile uses `io_workers: 1` to avoid concurrent large MAT-file reads.
+
 Run with the config:
 
 ```bash
-uv run pystamps --config native-kernels.yaml run \
+uv run pystamps --config configs/native-kernels.yaml run \
   --dataset /path/to/run_dataset \
   --start-step 2 --end-step 8
 ```
+
+The same profile is checked in as `configs/native-kernels.yaml` for conda/Rust validation runs.
+
+Inside the activated `pystamps-rust` conda environment, run `pystamps` directly instead of prefixing the command with `uv run`.
 
 Inspect actual backend availability first:
 
@@ -485,7 +607,7 @@ If you installed from source without Rust, rebuild after installing the toolchai
 
 ### Stage 6 or stage 8 fails around unwrapping
 
-Check `triangle` and `snaphu`:
+Check `triangle` and, for legacy/fallback unwrap runs, `snaphu`:
 
 ```bash
 which triangle

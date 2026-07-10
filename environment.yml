@@ -1,0 +1,14 @@
+name: pystamps-rust
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - rust
+  - setuptools-rust
+  - wheel
+  - pytest
+  - huggingface_hub
+  - matplotlib
+  - shapely
+  - uv

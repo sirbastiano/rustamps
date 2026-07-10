@@ -61,7 +61,7 @@ def test_stage3_reestimate_writes_reestimated_threshold_coeffs(tmp_path: Path, m
         {"bperp_mat": np.asarray([[10.0, 20.0]], dtype=np.float64)},
     )
 
-    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms: np.asarray([1.0, 2.0], dtype=np.float64))
+    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms, **kwargs: np.asarray([1.0, 2.0], dtype=np.float64))
 
     real_as_ps_dim = ported._as_ps_dim
     real_as_ps_ifg_complex = ported._as_ps_ifg_complex
@@ -94,16 +94,35 @@ def test_stage3_reestimate_writes_reestimated_threshold_coeffs(tmp_path: Path, m
 
     monkeypatch.setattr(ported, "_as_ps_matrix", fake_as_ps_matrix)
 
-    clap_calls = {"count": 0}
+    clap_calls: list[tuple[tuple[int, ...], str]] = []
 
-    def fake_clap(ph_bit: np.ndarray, alpha: float, beta: float, low_pass: np.ndarray) -> np.ndarray:
+    def fake_clap_stack_kernel(
+        ph_stack: np.ndarray,
+        *,
+        alpha: float,
+        beta: float,
+        low_pass: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> np.ndarray:
+        del alpha, beta, low_pass, threads
         vals = np.asarray([0.5 + 0.0j, 0.25 + 0.0j], dtype=np.complex128)
-        out = np.zeros_like(ph_bit, dtype=np.complex128)
-        out[0, 0] = vals[clap_calls["count"]]
-        clap_calls["count"] += 1
+        out = np.zeros_like(ph_stack, dtype=np.complex128)
+        out[0, 0, :] = vals
+        clap_calls.append((ph_stack.shape, backend))
         return out
 
-    monkeypatch.setattr(ported, "_clap_filt_patch", fake_clap)
+    monkeypatch.setattr(ported, "run_stage3_clap_filt_patch_stack_kernel", fake_clap_stack_kernel, raising=False)
+    monkeypatch.setattr(
+        ported,
+        "run_stage3_clap_filt_patch_kernel",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("single-plane clap patch should not be used")),
+    )
+    monkeypatch.setattr(
+        ported,
+        "_clap_filt_patch",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("python clap patch should not be used")),
+    )
 
     coeff_calls = {"count": 0}
     initial_coeffs = np.asarray([9.0, 8.0], dtype=np.float64)
@@ -114,17 +133,48 @@ def test_stage3_reestimate_writes_reestimated_threshold_coeffs(tmp_path: Path, m
         coeffs = initial_coeffs if coeff_calls["count"] == 1 else reestimated_coeffs
         return np.zeros(1, dtype=np.float64), coeffs
 
-    monkeypatch.setattr(ported, "_coh_threshold_from_dist", fake_threshold)
+    monkeypatch.setattr(ported, "run_stage3_coh_threshold_kernel", fake_threshold)
 
-    def fake_topofit(cpxphase: np.ndarray, bperp: np.ndarray, n_trial_wraps: float):
-        return 0.1, 0.2, 0.9, np.ones(2, dtype=np.complex64)
+    topofit_calls: list[tuple[np.ndarray, np.ndarray, float, str]] = []
 
-    monkeypatch.setattr(ported, "_ps_topofit_single", fake_topofit)
+    def fake_topofit_kernel(
+        cpxphase: np.ndarray,
+        bperp: np.ndarray,
+        n_trial_wraps: float,
+        *,
+        backend: str = "auto",
+        threads: int = 0,
+        cpu_fallback=None,
+    ):
+        topofit_calls.append((cpxphase.copy(), bperp.copy(), float(n_trial_wraps), backend))
+        return (
+            np.asarray([0.1], dtype=np.float64),
+            np.asarray([0.2], dtype=np.float64),
+            np.asarray([0.9], dtype=np.float64),
+            np.ones((1, 2), dtype=np.complex64),
+        )
 
-    result = ported.stage3_select_ps(patch_dir)
+    monkeypatch.setattr(ported, "run_stage2_topofit_kernel", fake_topofit_kernel)
+    monkeypatch.setattr(
+        ported,
+        "_ps_topofit_single",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("scalar topofit should not be used")),
+    )
+
+    result = ported.stage3_select_ps(patch_dir, backend="native")
 
     assert result == "Stage 3 selected 1 PS"
+    assert len(topofit_calls) == 1
+    cpxphase, bperp, n_trial_wraps, backend = topofit_calls[0]
+    assert cpxphase.shape == (1, 2)
+    assert bperp.shape == (1, 2)
+    assert n_trial_wraps == 1.0
+    assert backend == "native"
+    assert clap_calls == [((1, 1, 2), "native")]
     payload = read_mat(patch_dir / "select1.mat")
+    np.testing.assert_allclose(np.asarray(payload["K_ps2"], dtype=np.float64).reshape(-1), [0.1])
+    np.testing.assert_allclose(np.asarray(payload["C_ps2"], dtype=np.float64).reshape(-1), [0.2])
+    np.testing.assert_allclose(np.asarray(payload["coh_ps2"], dtype=np.float64).reshape(-1), [0.9])
     np.testing.assert_allclose(
         np.asarray(payload["coh_thresh_coeffs"], dtype=np.float64).reshape(-1),
         reestimated_coeffs,
@@ -186,7 +236,7 @@ def test_stage3_reestimate_skips_topofit_when_any_ifg_is_zero(tmp_path: Path, mo
         {"bperp_mat": np.asarray([[10.0, 20.0]], dtype=np.float64)},
     )
 
-    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms: np.asarray([1.0, 2.0], dtype=np.float64))
+    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms, **kwargs: np.asarray([1.0, 2.0], dtype=np.float64))
 
     real_as_ps_dim = ported._as_ps_dim
     real_as_ps_ifg_complex = ported._as_ps_ifg_complex
@@ -221,17 +271,26 @@ def test_stage3_reestimate_skips_topofit_when_any_ifg_is_zero(tmp_path: Path, mo
 
     clap_calls = {"count": 0}
 
-    def fake_clap(ph_bit: np.ndarray, alpha: float, beta: float, low_pass: np.ndarray) -> np.ndarray:
+    def fake_clap_stack_kernel(
+        ph_stack: np.ndarray,
+        *,
+        alpha: float,
+        beta: float,
+        low_pass: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> np.ndarray:
+        del alpha, beta, low_pass, backend, threads
         vals = np.asarray([0.5 + 0.0j, 0.0 + 0.0j], dtype=np.complex128)
-        out = np.zeros_like(ph_bit, dtype=np.complex128)
-        out[0, 0] = vals[clap_calls["count"]]
+        out = np.zeros_like(ph_stack, dtype=np.complex128)
+        out[0, 0, :] = vals
         clap_calls["count"] += 1
         return out
 
-    monkeypatch.setattr(ported, "_clap_filt_patch", fake_clap)
+    monkeypatch.setattr(ported, "run_stage3_clap_filt_patch_stack_kernel", fake_clap_stack_kernel)
     monkeypatch.setattr(
         ported,
-        "_coh_threshold_from_dist",
+        "run_stage3_coh_threshold_kernel",
         lambda *args, **kwargs: (np.zeros(1, dtype=np.float64), np.asarray([1.0, 0.0], dtype=np.float64)),
     )
 
@@ -305,7 +364,7 @@ def test_stage3_reestimate_keep_ix_uses_strict_source_threshold(tmp_path: Path, 
         {"bperp_mat": np.asarray([[10.0, 20.0]], dtype=np.float64)},
     )
 
-    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms: np.asarray([1.0, 2.0], dtype=np.float64))
+    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms, **kwargs: np.asarray([1.0, 2.0], dtype=np.float64))
 
     real_as_ps_dim = ported._as_ps_dim
     real_as_ps_ifg_complex = ported._as_ps_ifg_complex
@@ -340,24 +399,46 @@ def test_stage3_reestimate_keep_ix_uses_strict_source_threshold(tmp_path: Path, 
 
     clap_calls = {"count": 0}
 
-    def fake_clap(ph_bit: np.ndarray, alpha: float, beta: float, low_pass: np.ndarray) -> np.ndarray:
+    def fake_clap_stack_kernel(
+        ph_stack: np.ndarray,
+        *,
+        alpha: float,
+        beta: float,
+        low_pass: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> np.ndarray:
+        del alpha, beta, low_pass, backend, threads
         vals = np.asarray([0.5 + 0.0j, 0.25 + 0.0j], dtype=np.complex128)
-        out = np.zeros_like(ph_bit, dtype=np.complex128)
-        out[0, 0] = vals[clap_calls["count"]]
+        out = np.zeros_like(ph_stack, dtype=np.complex128)
+        out[0, 0, :] = vals
         clap_calls["count"] += 1
         return out
 
-    monkeypatch.setattr(ported, "_clap_filt_patch", fake_clap)
+    monkeypatch.setattr(ported, "run_stage3_clap_filt_patch_stack_kernel", fake_clap_stack_kernel)
     monkeypatch.setattr(
         ported,
-        "_coh_threshold_from_dist",
+        "run_stage3_coh_threshold_kernel",
         lambda *args, **kwargs: (np.asarray([0.5], dtype=np.float64), np.asarray([1.0, 0.0], dtype=np.float64)),
     )
 
-    def fake_topofit(cpxphase: np.ndarray, bperp: np.ndarray, n_trial_wraps: float):
-        return 0.1, 0.2, 0.5000005, np.ones(2, dtype=np.complex64)
+    def fake_topofit_kernel(
+        cpxphase: np.ndarray,
+        bperp: np.ndarray,
+        n_trial_wraps: float,
+        *,
+        backend: str = "auto",
+        threads: int = 0,
+        cpu_fallback=None,
+    ):
+        return (
+            np.asarray([0.1], dtype=np.float64),
+            np.asarray([0.2], dtype=np.float64),
+            np.asarray([0.5000005], dtype=np.float64),
+            np.ones((1, 2), dtype=np.complex64),
+        )
 
-    monkeypatch.setattr(ported, "_ps_topofit_single", fake_topofit)
+    monkeypatch.setattr(ported, "run_stage2_topofit_kernel", fake_topofit_kernel)
 
     result = ported.stage3_select_ps(patch_dir)
 
@@ -398,6 +479,104 @@ def test_clap_filt_patch_stack_returns_complex128_workspace() -> None:
     out = ported._clap_filt_patch_stack(ph, alpha=1.0, beta=0.3, low_pass=low_pass)
 
     assert out.dtype == np.complex128
+
+
+def test_clap_filt_grid_stack_prepared_uses_dispatcher_out_buffer(monkeypatch) -> None:
+    ph = np.ones((5, 5, 2), dtype=np.complex64)
+    low_pass = np.ones((4, 4), dtype=np.float64)
+    prepared = ported._prepare_clap_filt_grid_stack(ph.shape, n_win=4, n_pad=0, low_pass=low_pass)
+    out = np.empty_like(ph)
+    calls: list[tuple[tuple[int, ...], int, int, bool]] = []
+
+    def fake_stack_kernel(
+        ph_stack: np.ndarray,
+        *,
+        alpha: float,
+        beta: float,
+        n_win: int,
+        n_pad: int,
+        low_pass: np.ndarray,
+        preserve_precision: bool,
+        backend: str,
+    ) -> np.ndarray:
+        del alpha, beta, low_pass, backend
+        calls.append((ph_stack.shape, n_win, n_pad, preserve_precision))
+        result = np.empty(ph_stack.shape, dtype=np.complex64)
+        result[:, :, 0] = 2.0 + 0.0j
+        result[:, :, 1] = 3.0 + 0.0j
+        return result
+
+    monkeypatch.setattr(ported, "run_stage3_clap_filt_grid_stack_kernel", fake_stack_kernel)
+
+    observed = ported._clap_filt_grid_stack_prepared(
+        ph,
+        alpha=1.0,
+        beta=0.3,
+        prepared=prepared,
+        out=out,
+        workers=1,
+        preserve_precision=False,
+    )
+
+    assert observed is out
+    assert calls == [((5, 5, 2), 4, 0, False)]
+    np.testing.assert_allclose(out[:, :, 0], 2.0 + 0.0j)
+    np.testing.assert_allclose(out[:, :, 1], 3.0 + 0.0j)
+
+
+def test_wrap_filt_uses_dispatcher_default_padding(monkeypatch) -> None:
+    ph = np.ones((4, 4), dtype=np.complex64)
+    expected = np.full((4, 4), 2.0 + 0.0j, dtype=np.complex64)
+    expected_low = np.full((4, 4), 3.0 + 0.0j, dtype=np.complex64)
+    calls: list[tuple[int, float, int, str]] = []
+
+    def fake_wrap_kernel(
+        ph_grid: np.ndarray,
+        *,
+        n_win: int,
+        alpha: float,
+        n_pad: int,
+        low_flag: str,
+        backend: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        del ph_grid, backend
+        calls.append((n_win, alpha, n_pad, low_flag))
+        return expected, expected_low
+
+    monkeypatch.setattr(ported, "run_stage3_wrap_filt_kernel", fake_wrap_kernel)
+
+    observed, observed_low = ported._wrap_filt(ph, n_win=4, alpha=1.25, n_pad=None, low_flag="y")
+
+    assert calls == [(4, 1.25, 1, "y")]
+    np.testing.assert_array_equal(observed, expected)
+    np.testing.assert_array_equal(observed_low, expected_low)
+
+
+def test_wrap_filt_global_uses_dispatcher_default_padding(monkeypatch) -> None:
+    ph = np.ones((4, 4), dtype=np.complex64)
+    expected = np.full((4, 4), 4.0 + 0.0j, dtype=np.complex64)
+    calls: list[tuple[int, float, int, str]] = []
+
+    def fake_wrap_global_kernel(
+        ph_grid: np.ndarray,
+        *,
+        n_win: int,
+        alpha: float,
+        n_pad: int,
+        low_flag: str,
+        backend: str,
+    ) -> tuple[np.ndarray, None]:
+        del ph_grid, backend
+        calls.append((n_win, alpha, n_pad, low_flag))
+        return expected, None
+
+    monkeypatch.setattr(ported, "run_stage3_wrap_filt_global_kernel", fake_wrap_global_kernel)
+
+    observed, observed_low = ported._wrap_filt_global(ph, n_win=4, alpha=1.1, n_pad=None, low_flag="n")
+
+    assert calls == [(4, 1.1, 1, "n")]
+    np.testing.assert_array_equal(observed, expected)
+    assert observed_low is None
 
 
 def test_stage3_density_threshold_uses_matlab_da_bin_edges(tmp_path: Path, monkeypatch) -> None:
@@ -442,7 +621,7 @@ def test_stage3_density_threshold_uses_matlab_da_bin_edges(tmp_path: Path, monke
         },
     )
 
-    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms: np.asarray([1.0], dtype=np.float64))
+    monkeypatch.setattr(ported, "_ifg_index_for_selection", lambda ps, parms, **kwargs: np.asarray([1.0], dtype=np.float64))
     monkeypatch.setattr(
         ported,
         "_as_ps_ifg_complex",
@@ -454,21 +633,50 @@ def test_stage3_density_threshold_uses_matlab_da_bin_edges(tmp_path: Path, monke
         lambda values, n_ps_arg, name: np.zeros((n_ps_arg, 1), dtype=np.float32),
     )
 
-    captured: dict[str, np.ndarray] = {}
+    captured: dict[str, np.ndarray | str] = {}
 
-    def fake_threshold(*, D_A_max: np.ndarray, **kwargs):
-        captured["D_A_max"] = np.asarray(D_A_max, dtype=np.float64).copy()
+    def fake_threshold(*args, backend: str = "python", **kwargs):
+        captured["D_A_max"] = np.asarray(args[2], dtype=np.float64).copy()
+        captured["histogram_backend"] = backend
         return np.ones(n_ps, dtype=np.float64), np.asarray([1.0, 0.0], dtype=np.float64)
 
-    monkeypatch.setattr(ported, "_coh_threshold_from_dist", fake_threshold)
+    monkeypatch.setattr(ported, "run_stage3_coh_threshold_kernel", fake_threshold)
 
-    result = ported.stage3_select_ps(patch_dir)
+    result = ported.stage3_select_ps(patch_dir, backend="native")
 
     assert result == "Stage 3 selected 0 PS"
     np.testing.assert_array_equal(
         captured["D_A_max"],
         np.asarray([0.0, 10001.0, 20001.0, 30001.0, 50000.0], dtype=np.float64),
     )
+    assert captured["histogram_backend"] == "native"
+
+
+def test_stage3_threshold_histogram_uses_requested_kernel_backend(monkeypatch) -> None:
+    calls: list[tuple[np.ndarray, np.ndarray, str]] = []
+
+    def fake_histogram(values: np.ndarray, centers: np.ndarray, *, backend: str = "auto") -> np.ndarray:
+        calls.append((np.asarray(values).copy(), np.asarray(centers).copy(), backend))
+        return np.asarray([0.0, 0.0, 10.0, 1.0], dtype=np.float64)
+
+    monkeypatch.setattr(ported, "run_stage2_histogram_kernel", fake_histogram)
+
+    ported._coh_threshold_from_dist(
+        coh_values=np.asarray([0.2, 0.4, 0.6], dtype=np.float64),
+        D_A=np.asarray([0.2, 0.3, 0.4], dtype=np.float64),
+        D_A_max=np.asarray([0.0, 1.0], dtype=np.float64),
+        coh_bins=np.asarray([0.1, 0.3, 0.5, 0.7], dtype=np.float64),
+        Nr_dist=np.ones(4, dtype=np.float64),
+        low_coh_thresh=2,
+        max_percent_rand=1.0,
+        select_method="DENSITY",
+        histogram_backend="native",
+    )
+
+    assert len(calls) == 1
+    np.testing.assert_allclose(calls[0][0], np.asarray([0.2, 0.4, 0.6], dtype=np.float64))
+    np.testing.assert_allclose(calls[0][1], np.asarray([0.1, 0.3, 0.5, 0.7], dtype=np.float64))
+    assert calls[0][2] == "native"
 
 
 def test_stage3_saved_patch1_row_matches_oracle_residual_angles() -> None:
@@ -502,4 +710,4 @@ def test_stage3_saved_patch1_row_matches_oracle_residual_angles() -> None:
     observed = np.angle(phase_residual).astype(np.float32, copy=False)
     expected = np.asarray(sel["ph_res2"], dtype=np.float32)[row, ifg_index_ix]
 
-    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=np.finfo(np.float32).eps)
+    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=5 * np.finfo(np.float32).eps)

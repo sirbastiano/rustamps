@@ -85,7 +85,9 @@ def _task_kind_for_stage(stage: StageDef, context: PipelineContext, patch_count:
         # Keep GPU work in-process to avoid per-process CUDA context overhead.
         return "io"
     if backend == "native":
-        return "cpu"
+        # Native kernels run in-process; avoid process-pool marshalling and
+        # platform restrictions around Python worker processes.
+        return "io"
 
     # Auto mode: CPU-first latency policy.
     # Stage-1 stays threaded (metadata/file heavy).
@@ -298,7 +300,6 @@ def _run_merged_stage(
     if expected is None:
         return StageResult(stage.stage_id, "merged", dataset_root.name, "skipped", "No expected artifact mapping")
 
-    artifact = dataset_root / expected
     bundle = MERGED_STAGE_BUNDLES.get(stage.stage_id, [expected])
     if not force_run and all((dataset_root / filename).exists() for filename in bundle):
         return StageResult(stage.stage_id, "merged", dataset_root.name, "skipped_existing", f"{expected} present")

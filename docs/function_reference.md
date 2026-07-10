@@ -64,7 +64,7 @@ Purpose: structured configuration for runtime behavior, numeric tolerances, exte
 ### Dataclasses
 - `RuntimeConfig`: runtime backend and worker settings
 - `ToleranceConfig`: numeric comparison tolerances for verification
-- `ExternalToolsConfig`: paths or names for required external tools
+- `ExternalToolsConfig`: paths or names for configured external tools
 - `CompatibilityConfig`: compatibility and strict-reference settings
 - `RunConfig`: top-level runtime configuration bundle
 
@@ -188,7 +188,7 @@ Purpose: Python implementations of the stage logic and the internal numerical he
 - `resolve_stage1_metadata(...) -> Stage1MetadataResolution`
 - `stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str`
 - `stage2_estimate_gamma(patch_dir: Path, backend: str = "auto", kernel_backend: str = "auto", kernel_backend_overrides: dict[str, str] | None = None, native_threads: int = 0, checkpoint_mode: str = "final", checkpoint_interval: int = 1, debug: bool = False) -> str`
-- `stage3_select_ps(patch_dir: Path, backend: str = "auto") -> str`
+- `stage3_select_ps(patch_dir: Path, backend: str = "auto") -> str`: selection remains Python-side; threshold histograms and re-estimation topofit rows use the stage-2 kernel dispatcher for native-capable backends.
 - `stage4_weed_ps(...) -> str`
 - `stage5_correct_and_promote(patch_dir: Path, backend: str = "auto") -> str`
 - `stage5_merge_and_ifgstd(...) -> str`
@@ -290,24 +290,64 @@ Purpose: accelerated CPU and GPU kernels used by later numerical stages.
 - `_cov_from_accumulators(...) -> np.ndarray`: covariance helper
 - `_auto_chunk_size(...) -> int`: choose chunk sizes for memory-aware execution
 - `stage2_native_available() -> bool`: probe for the compiled stage-2 extension
+- `stage4_native_available() -> bool`: probe for the compiled native stage-4 export
+- `stage5_native_available() -> bool`: probe for the compiled native stage-5 export
+- `stage6_native_available() -> bool`: probe for the compiled native stage-6 export
+- `stage6_estimate_la_error_native_available() -> bool`: probe for the compiled native stage-6 LA-error export
+- `stage6_smooth_3d_full_single_master_native_available() -> bool`: probe for the compiled native stage-6 smoothing export
+- `stage7_deramp_unwrapped_phase_native_available() -> bool`: probe for the compiled native stage-7 deramp export
+- `stage7_mean_velocity_fit_native_available() -> bool`: probe for the compiled native stage-7 mean-velocity export
 - `stage7_native_available() -> bool`: probe for the compiled native stage-7 export
 - `stage8_native_available() -> bool`: probe for the compiled native stage-8 export
+- `run_stage2_clap_filter_kernel(backend='auto', threads=0) -> np.ndarray`: public stage-2 CLAP Gaussian filter-kernel wrapper
 - `run_stage2_grid_accumulate_kernel(...)`: public stage-2 grid accumulation wrapper
+- `run_stage2_grid_indices_kernel(xy, grid_size, backend='auto', threads=0) -> np.ndarray`: public stage-2 candidate grid-index wrapper
+- `run_stage2_normalize_complex_kernel(values, preserve_precision=False, backend='auto', threads=0) -> np.ndarray`: public stage-2 complex unit-magnitude normalization wrapper
+- `run_stage2_normalize_phase_matrix_kernel(ph_nm, backend='auto', threads=0) -> dict[str, np.ndarray]`: public stage-2 phase-stack normalization wrapper
+- `run_stage2_ph_weight_block_kernel(ph_nm, bperp, k_ps, weighting, preserve_precision=False, backend='auto', threads=0) -> np.ndarray`: public stage-2 phase-weight block wrapper
 - `run_stage2_topofit_kernel(...)`: public stage-2 generic topofit wrapper
 - `run_stage2_topofit_row_invariant_kernel(...)`: public stage-2 row-invariant topofit wrapper
 - `run_stage2_topofit_coh_row_invariant_kernel(...)`: public stage-2 coherence-only row-invariant wrapper
 - `run_stage2_histogram_kernel(...)`: public stage-2 histogram wrapper
+- `run_stage3_clap_filt_grid_kernel(ph, *, alpha, beta, n_win, n_pad=0, low_pass=None, preserve_precision=False, backend='auto', threads=0) -> np.ndarray`: public stage-3 CLAP grid FFT filter wrapper
+- `run_stage3_clap_filt_grid_stack_kernel(ph_stack, *, alpha, beta, n_win, n_pad=0, low_pass=None, preserve_precision=False, backend='auto', threads=0) -> np.ndarray`: public stage-3 CLAP grid-stack FFT filter wrapper
+- `run_stage3_clap_filt_patch_kernel(ph, *, alpha, beta, low_pass, backend='auto', threads=0) -> np.ndarray`: public stage-3 single-patch CLAP FFT filter wrapper
+- `run_stage3_clap_filt_patch_stack_kernel(ph_stack, *, alpha, beta, low_pass, backend='auto', threads=0) -> np.ndarray`: public stage-3 multi-IFG patch CLAP FFT filter wrapper
+- `run_stage3_coh_threshold_kernel(coh_values, d_a, d_a_max, coh_bins, nr_dist, low_coh_thresh, max_percent_rand, select_method, backend='auto', threads=0) -> tuple[np.ndarray, np.ndarray]`: public stage-3 coherence-threshold wrapper
+- `run_stage3_select_ifg_index_kernel(n_ifg, master_ix, drop_ifg_index, small_baseline, backend='auto', threads=0) -> np.ndarray`: public stage-3 IFG selection-index wrapper
+- `run_stage3_wrap_filt_kernel(ph, *, n_win, alpha, n_pad, low_flag='n', backend='auto', threads=0) -> tuple[np.ndarray, np.ndarray | None]`: public stage-3 wrapped-phase FFT filter wrapper
+- `run_stage3_wrap_filt_global_kernel(ph, *, n_win, alpha, n_pad, low_flag='n', backend='auto', threads=0) -> tuple[np.ndarray, np.ndarray | None]`: public stage-3 global wrapped-phase FFT filter wrapper
+- `run_stage4_adjacent_component_keep_kernel(ij_cols23, coh, backend='auto', threads=0) -> np.ndarray`: public stage-4 adjacent-component keep-mask wrapper
 - `_stage4_edge_stats_python(...)`
 - `_stage4_edge_stats_native(...)`
+- `run_stage4_duplicate_keep_kernel(xy, coh, backend='auto', threads=0) -> np.ndarray`: public stage-4 duplicate coordinate keep-mask wrapper
 - `run_stage4_edge_stats_kernel(ph_weed, node_a, node_b, bperp, day, time_win, small_baseline, backend='auto', threads=0) -> dict[str, np.ndarray]`: public stage-4 edge-statistics kernel wrapper
+- `run_stage4_phase_correction_kernel(ph2, ix_weed, k_ps, c_ps, bperp, small_baseline, master_ix, backend='auto', threads=0) -> np.ndarray`: public stage-4 phase correction/normalization wrapper
+- `run_stage4_weed_ifg_index_kernel(n_ifg, drop_ifg_index, backend='auto', threads=0) -> np.ndarray`: public stage-4 weed IFG-index wrapper
+- `run_stage5_duplicate_keep_kernel(lonlat, coh_ps, backend='auto', threads=0) -> np.ndarray`: public stage-5 merged lon/lat duplicate keep-mask wrapper
+- `run_stage5_format_merged_rc2_kernel(rc2_all, backend='auto', threads=0) -> np.ndarray`: public stage-5 merged rc2 normalization/transpose wrapper
+- `run_stage5_ifg_std_kernel(ph2, ph_patch, bperp, k_ps, c_ps, backend='auto', threads=0) -> np.ndarray`: public stage-5 merged IFG standard-deviation kernel wrapper
+- `run_stage5_patch_keep_mask_kernel(ij_cols, merged_ij_cols, merged_indices, patch_bounds=None, backend='auto', threads=0) -> dict[str, np.ndarray]`: public stage-5 patch overlap keep-mask wrapper
+- `run_stage5_rc2_correction_kernel(ph2, ph_patch, bperp, k_ps, c_ps, *, small_baseline, master_ix, backend='auto', threads=0) -> dict[str, np.ndarray]`: public stage-5 rc2 phase-correction and single-master promotion wrapper
+- `run_stage6_estimate_la_error_kernel(dph_space, day, bperp, n_trial_wraps, backend='auto', threads=0) -> np.ndarray`: public stage-6 single-master LA-error wrapper
+- `run_stage6_extract_grid_values_kernel(ifguw, nzix, backend='auto', threads=0) -> np.ndarray`: public stage-6 column-major grid value extraction wrapper
+- `run_stage6_grid_accumulate_kernel(ph_in, grid_lin, n_cells, backend='auto', threads=0) -> np.ndarray`: public stage-6 grid-cell complex accumulation wrapper
+- `run_stage6_single_master_ifg_geometry_kernel(n_ifg, master_ix, backend='auto', threads=0) -> dict[str, np.ndarray]`: public stage-6 single-master IFG geometry wrapper
+- `run_stage6_smooth_3d_full_single_master_kernel(dph_space, day, time_win, backend='auto', chunk_edges=32768, threads=0) -> tuple[np.ndarray, np.ndarray]`: public stage-6 single-master 3D_FULL smoothing wrapper
+- `run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend='auto', nshortcycle=200.0, threads=0) -> dict[str, np.ndarray | float]`: public stage-6 native grid unwrap wrapper
+- `run_stage6_unwrap_ifg_sets_kernel(n_ifg, master_ix, drop_ifg_index, small_baseline, backend='auto', threads=0) -> dict[str, np.ndarray]`: public stage-6 unwrap/solve IFG-index wrapper
+- `run_stage7_deramp_unwrapped_phase_kernel(xy, ph_all, backend='auto', threads=0) -> tuple[np.ndarray, np.ndarray]`: public stage-7/8 unwrapped phase deramp wrapper
+- `run_stage7_mean_velocity_fit_kernel(ph_mean_v, day, master_ix, ifg_std, backend='auto', threads=0) -> np.ndarray`: public stage-7 mean-velocity weighted affine fit wrapper
 - `_stage7_scla_cpu(...)`
 - `_stage7_scla_gpu(...)`
 - `_stage7_scla_native(...)`
+- `run_stage7_scla_smooth_kernel(k_ps_uw, c_ps_uw, edges, backend='auto', threads=0) -> tuple[np.ndarray, np.ndarray]`: public stage-7 SCLA neighbor-envelope smoothing wrapper
 - `_stage8_edge_noise_cpu(...)`
 - `_stage8_edge_noise_gpu(...)`
 - `_stage8_edge_noise_native(...)`
 - `run_stage7_scla_kernel(ph_proc, ph_mean_v, bperp_mat, unwrap_ix, solve_ix, day, master_ix, ifg_std, backend='auto', chunk_ps=0) -> dict[str, np.ndarray]`: public stage-7 kernel wrapper
 - `run_stage8_edge_noise_kernel(uw_ph, node_a, node_b, backend='auto', chunk_edges=0) -> dict[str, np.ndarray]`: public stage-8 kernel wrapper
+- `run_stage8_weighted_lstsq_kernel(design, values, covariance=None, backend='auto', threads=0) -> np.ndarray`: public stage-8 shared-design weighted least-squares wrapper
 - `describe_backend_matrix() -> dict[str, Any]`: report providers and per-kernel backend coverage
 
 ### Practical kernel examples

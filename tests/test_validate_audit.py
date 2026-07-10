@@ -29,6 +29,46 @@ def _copy_test_tree(src: Path, dst: Path) -> None:
             shutil.copy2(path, target)
 
 
+def test_copy_dataset_creates_independent_files(tmp_path: Path) -> None:
+    module = _load_validate_audit_module()
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    source_file = source / "ps2.mat"
+    source_file.write_text("golden", encoding="utf-8")
+
+    module._copy_dataset(source, target)
+
+    copied_file = target / "ps2.mat"
+    assert copied_file.read_text(encoding="utf-8") == "golden"
+    assert not os.path.samefile(source_file, copied_file)
+
+    copied_file.write_text("run output", encoding="utf-8")
+
+    assert source_file.read_text(encoding="utf-8") == "golden"
+
+
+def test_copy_dataset_uses_clone_copy_when_available(monkeypatch, tmp_path: Path) -> None:
+    module = _load_validate_audit_module()
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.mkdir()
+    (source / "ps2.mat").write_text("golden", encoding="utf-8")
+    calls = []
+
+    def fake_clone(src: Path, dst: Path) -> bool:
+        calls.append((src, dst))
+        shutil.copytree(src, dst)
+        return True
+
+    monkeypatch.setattr(module, "_clone_copytree", fake_clone)
+
+    module._copy_dataset(source, target)
+
+    assert calls == [(source, target)]
+    assert (target / "ps2.mat").read_text(encoding="utf-8") == "golden"
+
+
 def test_validate_audit_writes_contract_and_passes(monkeypatch, tmp_path: Path) -> None:
     module = _load_validate_audit_module()
     inputs_root = tmp_path / "inputs_and_outputs"

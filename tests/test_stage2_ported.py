@@ -362,7 +362,7 @@ def test_ps_topofit_select_candidate_preserves_symmetric_endpoint_sign() -> None
     assert observed == 12
 
 
-def test_ps_topofit_select_candidate_prefers_refined_winner_for_non_endpoint_peaks() -> None:
+def test_ps_topofit_select_candidate_keeps_coarse_winner_for_non_endpoint_peaks() -> None:
     observed = ported._ps_topofit_select_candidate(
         np.asarray([5, 11], dtype=np.int64),
         np.asarray([0.80, 0.80001], dtype=np.float64),
@@ -371,6 +371,17 @@ def test_ps_topofit_select_candidate_prefers_refined_winner_for_non_endpoint_pea
     )
 
     assert observed == 11
+
+
+def test_ps_topofit_select_candidate_keeps_coarse_winner_when_refined_near_max_is_higher() -> None:
+    observed = ported._ps_topofit_select_candidate(
+        np.asarray([5, 11], dtype=np.int64),
+        np.asarray([0.80001, 0.80], dtype=np.float64),
+        np.asarray([0.99, 1.0], dtype=np.float64),
+        13,
+    )
+
+    assert observed == 5
 
 
 def test_ps_topofit_single_matches_source_near_max_refinement_path() -> None:
@@ -1351,7 +1362,6 @@ def test_stage2_saved_ph_weight_matches_saved_ph_grid(monkeypatch, tmp_path: Pat
     )
     monkeypatch.setattr(ported, "_load_stage2_random_hist_cache", lambda *args, **kwargs: (np.ones(100), 43.0))
     monkeypatch.setattr(ported, "_write_stage2_random_hist_cache", lambda *args, **kwargs: None)
-
     def fake_topofit(
         cpxphase: np.ndarray,
         bperp: np.ndarray,
@@ -1524,13 +1534,100 @@ def test_stage2_estimate_gamma_uses_legacy_precision_path(monkeypatch, tmp_path:
         lambda cpxphase, bperp, n_trial_wraps, **kwargs: np.full(cpxphase.shape[0], 0.25, dtype=np.float64),
     )
 
-    result = ported.stage2_estimate_gamma(patch_dir, debug=False)
+    result = ported.stage2_estimate_gamma(patch_dir, debug=False, kernel_backend="python")
 
     assert result == "Stage 2 computed coherence for 2 candidates in 1 iterations"
     assert flags["ph_weight"] == [False]
     assert flags["grid"] == [False]
     assert flags["clap"] == [False]
     assert flags["normalize"] == [False]
+
+
+def test_stage2_estimate_gamma_preserves_saved_bperp_mat_single_precision(monkeypatch, tmp_path: Path) -> None:
+    patch_dir = tmp_path / "PATCH_1"
+    patch_dir.mkdir()
+    (patch_dir / "bp1.mat").touch()
+    (patch_dir / "parms.mat").touch()
+
+    ps_payload = {
+        "n_ps": np.asarray(2.0, dtype=np.float64),
+        "master_ix": np.asarray(1.0, dtype=np.float64),
+        "bperp": np.asarray([0.0, 15.0, 30.0], dtype=np.float64),
+        "xy": np.asarray([[1.0, 0.0, 0.0], [2.0, 30.0, 0.0]], dtype=np.float64),
+        "mean_range": np.asarray(830000.0, dtype=np.float64),
+        "mean_incidence": np.asarray(np.deg2rad(23.0), dtype=np.float64),
+    }
+    ph_payload = {
+        "ph": np.asarray(
+            [
+                [1.0 + 0.0j, 0.8 + 0.2j, 0.6 + 0.4j],
+                [1.0 + 0.0j, 0.7 + 0.3j, 0.5 + 0.5j],
+            ],
+            dtype=np.complex64,
+        )
+    }
+    bp_payload = {
+        "bperp_mat": np.asarray(
+            [[15.0, 30.0], [25.0, 40.0]],
+            dtype=np.float32,
+        )
+    }
+    parms_payload = {"gamma_max_iterations": np.asarray(1.0, dtype=np.float64)}
+
+    def fake_read_mat(path: Path):
+        name = Path(path).name
+        if name == "ps1.mat":
+            return ps_payload
+        if name == "ph1.mat":
+            return ph_payload
+        if name == "bp1.mat":
+            return bp_payload
+        if name == "parms.mat":
+            return parms_payload
+        return {}
+
+    seen_bperp_dtypes: list[np.dtype] = []
+
+    monkeypatch.setattr(ported, "read_mat", fake_read_mat)
+    monkeypatch.setattr(ported, "write_mat", lambda path, payload: None)
+    monkeypatch.setattr(ported, "_load_stage2_random_hist_cache", lambda *args, **kwargs: (np.ones(100), 43.0))
+    monkeypatch.setattr(ported, "_write_stage2_random_hist_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        ported,
+        "_prepare_clap_filt_grid_stack",
+        lambda shape, n_win, n_pad, low_pass: SimpleNamespace(n_i=shape[0], n_j=shape[1], n_ifg=shape[2]),
+    )
+    monkeypatch.setattr(
+        ported,
+        "_clap_filt_grid_stack_prepared",
+        lambda ph_stack, alpha, beta, prepared, out=None, workers=1, preserve_precision=False: np.copyto(
+            out, np.asarray(ph_stack, dtype=np.complex64)
+        )
+        or out,
+    )
+
+    def fake_topofit(
+        cpxphase: np.ndarray,
+        bperp: np.ndarray,
+        n_trial_wraps: float,
+        *,
+        kernel_backend: str = "python",
+        native_threads: int = 0,
+    ):
+        seen_bperp_dtypes.append(np.asarray(bperp).dtype)
+        n_row, n_col = cpxphase.shape
+        return (
+            np.zeros(n_row, dtype=np.float64),
+            np.zeros(n_row, dtype=np.float64),
+            np.full(n_row, 0.6, dtype=np.float64),
+            np.ones((n_row, n_col), dtype=np.complex64),
+        )
+
+    monkeypatch.setattr(ported, "_ps_topofit_batch", fake_topofit)
+
+    ported.stage2_estimate_gamma(patch_dir, debug=False, kernel_backend="python")
+
+    assert seen_bperp_dtypes == [np.dtype(np.float32)]
 
 
 def test_stage2_saved_nr_matches_scaled_histogram(monkeypatch, tmp_path: Path) -> None:
@@ -1628,6 +1725,7 @@ def test_stage2_final_checkpoint_preserves_current_outputs_and_previous_weightin
     patch_dir = tmp_path / "PATCH_1"
     patch_dir.mkdir()
     (patch_dir / "bp1.mat").touch()
+    (patch_dir / "parms.mat").touch()
 
     ps_payload = {
         "n_ps": np.asarray(2.0, dtype=np.float64),
@@ -1679,6 +1777,13 @@ def test_stage2_final_checkpoint_preserves_current_outputs_and_previous_weightin
     )
     monkeypatch.setattr(ported, "_load_stage2_random_hist_cache", lambda *args, **kwargs: (np.ones(100), 43.0))
     monkeypatch.setattr(ported, "_write_stage2_random_hist_cache", lambda *args, **kwargs: None)
+    real_psquare_weighting = ported._stage2_psquare_weighting
+
+    def nonzero_psquare_weighting(*args, **kwargs):
+        prand, prand_hi, prand_ps, weighting = real_psquare_weighting(*args, **kwargs)
+        return prand, prand_hi, prand_ps, np.ones_like(weighting)
+
+    monkeypatch.setattr(ported, "_stage2_psquare_weighting", nonzero_psquare_weighting)
 
     def fake_topofit(
         cpxphase: np.ndarray,
@@ -2007,6 +2112,16 @@ def test_stage2_random_hist_cache_reuses_deterministic_histogram(
     assert random_hist_calls["count"] == _STAGE2_RANDOM_HIST_CALLS
 
 
+def test_stage2_random_hist_cache_root_uses_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cache_root = tmp_path / "stage2-cache"
+    monkeypatch.setenv("PYSTAMPS_STAGE2_RANDOM_HIST_CACHE", str(cache_root))
+
+    assert ported._stage2_random_hist_cache_root() == cache_root
+
+
 def test_stage2_does_not_reuse_scaled_pm1_histogram_as_random_baseline(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -2135,7 +2250,7 @@ def test_stage2_uses_bp1_matrix_for_non_small_baseline(monkeypatch, tmp_path: Pa
     ps_payload = {
         "n_ps": np.asarray(2.0, dtype=np.float64),
         "master_ix": np.asarray(1.0, dtype=np.float64),
-        "bperp": np.asarray([0.0, 15.0, 30.0], dtype=np.float64),
+        "bperp": np.asarray([0.0, 15.0, 30.0], dtype=np.float32),
         "xy": np.asarray(
             [
                 [1.0, 0.0, 0.0],
@@ -2161,7 +2276,7 @@ def test_stage2_uses_bp1_matrix_for_non_small_baseline(monkeypatch, tmp_path: Pa
                 [15.0, 30.0],
                 [16.0, 31.0],
             ],
-            dtype=np.float64,
+            dtype=np.float32,
         )
     }
 
@@ -2214,7 +2329,7 @@ def test_stage2_uses_bp1_matrix_for_non_small_baseline(monkeypatch, tmp_path: Pa
         kernel_backend: str = "python",
         native_threads: int = 0,
     ):
-        seen_bperp.append(np.asarray(bperp, dtype=np.float64).copy())
+        seen_bperp.append(np.asarray(bperp).copy())
         n_row, n_col = cpxphase.shape
         return (
             np.zeros(n_row, dtype=np.float64),
@@ -2231,7 +2346,7 @@ def test_stage2_uses_bp1_matrix_for_non_small_baseline(monkeypatch, tmp_path: Pa
     assert result == "Stage 2 computed coherence for 2 candidates in 3 iterations"
     assert seen_bperp
     assert seen_random_bperp
-    assert seen_bperp[0].dtype == np.float64
+    assert seen_bperp[0].dtype == np.float32
     assert seen_random_bperp[0].dtype == np.float64
     np.testing.assert_allclose(seen_bperp[0], bp_payload["bperp_mat"])
     np.testing.assert_allclose(seen_random_bperp[0], np.asarray([15.0, 30.0], dtype=np.float64))

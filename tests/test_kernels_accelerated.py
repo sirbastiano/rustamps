@@ -1,21 +1,325 @@
 import numpy as np
 import pytest
 import importlib.util
+from scipy import signal
 
 import pystamps.kernels.accelerated as accel
 from pystamps.kernels import (
     BackendUnavailableError,
     describe_backend_matrix,
     run_stage4_edge_stats_kernel,
+    run_stage2_clap_filter_kernel,
     run_stage2_grid_accumulate_kernel,
+    run_stage2_grid_indices_kernel,
     run_stage2_histogram_kernel,
+    run_stage2_normalize_complex_kernel,
+    run_stage2_normalize_phase_matrix_kernel,
+    run_stage2_ph_weight_block_kernel,
     run_stage2_topofit_coh_row_invariant_kernel,
     run_stage2_topofit_kernel,
     run_stage2_topofit_row_invariant_kernel,
+    run_stage3_coh_threshold_kernel,
+    run_stage3_clap_filt_grid_kernel,
+    run_stage3_clap_filt_grid_stack_kernel,
+    run_stage3_clap_filt_patch_kernel,
+    run_stage3_select_ifg_index_kernel,
+    run_stage3_wrap_filt_kernel,
+    run_stage3_wrap_filt_global_kernel,
+    run_stage4_duplicate_keep_kernel,
+    run_stage4_adjacent_component_keep_kernel,
+    run_stage4_phase_correction_kernel,
+    run_stage5_format_merged_rc2_kernel,
+    run_stage5_duplicate_keep_kernel,
+    run_stage5_ifg_std_kernel,
+    run_stage5_patch_keep_mask_kernel,
+    run_stage5_rc2_correction_kernel,
+    run_stage4_weed_ifg_index_kernel,
+    run_stage6_extract_grid_values_kernel,
+    run_stage6_grid_accumulate_kernel,
+    run_stage6_prepare_cost_offsets_kernel,
+    run_stage6_reconstruct_ps_phase_kernel,
+    run_stage6_ps_grid_indices_kernel,
+    run_stage6_select_ifgw_kernel,
+    run_stage6_single_master_ifg_geometry_kernel,
+    run_stage6_unwrap_ifg_sets_kernel,
+    run_stage6_unwrap_grid_kernel,
+    run_stage7_center_to_reference_kernel,
     run_stage7_scla_kernel,
+    run_stage7_scla_smooth_kernel,
     run_stage8_edge_noise_kernel,
+    run_stage8_weighted_lstsq_kernel,
 )
+from pystamps.kernels.registry import KernelRegistry
 from pystamps.pipeline import ported
+
+
+def _reference_clap_filt_patch(ph: np.ndarray, alpha: float, beta: float, low_pass: np.ndarray) -> np.ndarray:
+    ph_arr = np.asarray(ph, dtype=np.complex128).copy()
+    ph_arr[np.isnan(ph_arr)] = 0
+    ph_fft = np.fft.fft2(ph_arr)
+    h = np.abs(ph_fft)
+    b = ported._clap_filter_kernel()
+    h = np.fft.ifftshift(signal.convolve2d(np.fft.fftshift(h), b, mode="same", boundary="fill", fillvalue=0.0))
+    mean_h = float(np.median(h))
+    if mean_h != 0.0:
+        h = h / mean_h
+    h = np.power(h, float(alpha))
+    h = h - 1.0
+    h[h < 0.0] = 0.0
+    g = h * float(beta) + np.asarray(low_pass, dtype=np.float64)
+    return np.fft.ifft2(ph_fft * g)
+
+
+def _reference_clap_filt_grid(
+    ph: np.ndarray,
+    alpha: float,
+    beta: float,
+    n_win: int,
+    n_pad: int,
+    low_pass: np.ndarray,
+    preserve_precision: bool = False,
+) -> np.ndarray:
+    ph_arr = np.asarray(ph, dtype=np.complex128 if preserve_precision else np.complex64).copy()
+    ph_arr[np.isnan(ph_arr)] = 0
+    n_i, n_j = ph_arr.shape
+    out = np.zeros((n_i, n_j), dtype=np.complex128)
+    n_inc = max(1, int(n_win) // 4)
+    n_win_i = int(np.ceil(n_i / float(n_inc)) - 3)
+    n_win_j = int(np.ceil(n_j / float(n_inc)) - 3)
+    if n_win_i <= 0 or n_win_j <= 0:
+        return out.astype(np.complex128 if preserve_precision else np.complex64, copy=False)
+
+    x = np.arange(0, int(n_win) // 2, dtype=np.float64)
+    X, Y = np.meshgrid(x, x, indexing="xy")
+    wind_func = np.concatenate((X + Y, np.fliplr(X + Y)), axis=1)
+    wind_func = np.concatenate((wind_func, np.flipud(wind_func)), axis=0) + 1e-6
+    ph_bit = np.zeros((int(n_win) + int(n_pad), int(n_win) + int(n_pad)), dtype=np.complex128)
+
+    for ix1 in range(n_win_i):
+        wf = wind_func.copy()
+        i1 = ix1 * n_inc
+        i2 = i1 + int(n_win)
+        if i2 > n_i:
+            i_shift = i2 - n_i
+            i2 = n_i
+            i1 = n_i - int(n_win)
+            wf = np.vstack((np.zeros((i_shift, int(n_win)), dtype=np.float64), wf[: int(n_win) - i_shift, :]))
+        for ix2 in range(n_win_j):
+            wf2 = wf.copy()
+            j1 = ix2 * n_inc
+            j2 = j1 + int(n_win)
+            if j2 > n_j:
+                j_shift = j2 - n_j
+                j2 = n_j
+                j1 = n_j - int(n_win)
+                wf2 = np.hstack((np.zeros((int(n_win), j_shift), dtype=np.float64), wf2[:, : int(n_win) - j_shift]))
+            ph_bit.fill(0)
+            ph_bit[: int(n_win), : int(n_win)] = ph_arr[i1:i2, j1:j2]
+            ph_filt = _reference_clap_filt_patch(ph_bit, alpha=alpha, beta=beta, low_pass=low_pass)
+            out[i1:i2, j1:j2] += ph_filt[: int(n_win), : int(n_win)] * wf2
+    return out.astype(np.complex128 if preserve_precision else np.complex64, copy=False)
+
+
+def test_weighted_affine_fit_native_matches_python_reference() -> None:
+    time_diff = np.asarray([-2.0, 0.0, 3.0, 7.0], dtype=np.float64)
+    y = np.asarray(
+        [
+            [3.0, 4.0, 6.0, 9.0],
+            [-2.0, 0.0, 1.0, 5.0],
+        ],
+        dtype=np.float64,
+    )
+    weight = np.asarray([1.0, 4.0, 2.0, 0.5], dtype=np.float64)
+
+    expected = ported._weighted_affine_fit(time_diff, y, weight)
+    observed = accel.run_weighted_affine_fit_kernel(time_diff, y, weight, backend="native")
+
+    np.testing.assert_allclose(observed[0], expected[0], atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(observed[1], expected[1], atol=1e-12, rtol=0.0)
+
+
+def test_weighted_slope_fit_native_matches_python_reference() -> None:
+    x = np.asarray([-1.0, 2.0, 4.0, 8.0], dtype=np.float64)
+    y_real = np.asarray(
+        [
+            [1.0, 3.0, 5.0, 9.0],
+            [-2.0, 4.0, 8.0, 16.0],
+        ],
+        dtype=np.float64,
+    )
+    y_complex = (y_real + 1j * np.flip(y_real, axis=1)).astype(np.complex128)
+    weight = np.asarray([1.0, np.inf, 0.0, 2.0], dtype=np.float64)
+
+    expected_real = ported._weighted_slope_fit(x, y_real, weight)
+    observed_real = accel.run_weighted_slope_fit_kernel(x, y_real, weight, backend="native")
+    expected_complex = ported._weighted_slope_fit(x, y_complex, weight)
+    observed_complex = accel.run_weighted_slope_fit_kernel(x, y_complex, weight, backend="native")
+
+    np.testing.assert_allclose(observed_real, expected_real, atol=1e-12, rtol=0.0)
+    np.testing.assert_allclose(observed_complex, expected_complex, atol=1e-12, rtol=0.0)
+
+
+def _reference_clap_filt_grid_stack(
+    ph_stack: np.ndarray,
+    alpha: float,
+    beta: float,
+    n_win: int,
+    n_pad: int,
+    low_pass: np.ndarray,
+    preserve_precision: bool = False,
+) -> np.ndarray:
+    ph_arr = np.asarray(ph_stack)
+    out_dtype = np.complex128 if preserve_precision else np.complex64
+    out = np.empty(ph_arr.shape, dtype=out_dtype)
+    for i_ifg in range(ph_arr.shape[2]):
+        out[:, :, i_ifg] = _reference_clap_filt_grid(
+            ph_arr[:, :, i_ifg],
+            alpha=alpha,
+            beta=beta,
+            n_win=n_win,
+            n_pad=n_pad,
+            low_pass=low_pass,
+            preserve_precision=preserve_precision,
+        )
+    return out
+
+
+def _reference_wrap_filt(
+    ph: np.ndarray,
+    n_win: int,
+    alpha: float,
+    n_pad: int,
+    low_flag: str,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    ph_arr = np.asarray(ph, dtype=np.complex64).copy()
+    ph_arr[np.isnan(ph_arr)] = 0
+    n_i, n_j = ph_arr.shape
+    n_inc = max(1, int(np.floor(int(n_win) / 2.0)))
+    n_win_blocks_i = int(np.ceil(n_i / n_inc) - 1)
+    n_win_blocks_j = int(np.ceil(n_j / n_inc) - 1)
+    out = np.zeros_like(ph_arr, dtype=np.complex64)
+    want_low = str(low_flag).lower() == "y"
+    out_low = np.zeros_like(ph_arr, dtype=np.complex64) if want_low else None
+
+    x = np.arange(1, int(n_win) // 2 + 1, dtype=np.float64)
+    X, Y = np.meshgrid(x, x)
+    X = X + Y
+    wind_func = np.concatenate((X, np.fliplr(X)), axis=1)
+    wind_func = np.concatenate((wind_func, np.flipud(wind_func)), axis=0).astype(np.float64)
+    b = np.outer(ported._gausswin(7), ported._gausswin(7))
+    ph_bit = np.zeros((int(n_win) + int(n_pad), int(n_win) + int(n_pad)), dtype=np.complex64)
+    low_filter = None
+    if want_low:
+        g = ported._gausswin(int(n_win) + int(n_pad), alpha=16.0)
+        low_filter = np.fft.ifftshift(np.outer(g, g))
+
+    for ix1 in range(n_win_blocks_i):
+        wf = wind_func.copy()
+        i1 = ix1 * n_inc
+        i2 = i1 + int(n_win)
+        if i2 > n_i:
+            i_shift = i2 - n_i
+            i2 = n_i
+            i1 = n_i - int(n_win)
+            wf = np.vstack((np.zeros((i_shift, int(n_win)), dtype=np.float64), wf[: int(n_win) - i_shift, :]))
+        for ix2 in range(n_win_blocks_j):
+            wf2 = wf.copy()
+            j1 = ix2 * n_inc
+            j2 = j1 + int(n_win)
+            if j2 > n_j:
+                j_shift = j2 - n_j
+                j2 = n_j
+                j1 = n_j - int(n_win)
+                wf2 = np.hstack((np.zeros((int(n_win), j_shift), dtype=np.float64), wf2[:, : int(n_win) - j_shift]))
+            ph_bit.fill(0)
+            ph_bit[: int(n_win), : int(n_win)] = ph_arr[i1:i2, j1:j2]
+            ph_fft = np.fft.fft2(ph_bit)
+            h = np.abs(ph_fft)
+            h = np.fft.ifftshift(signal.convolve2d(np.fft.fftshift(h), b, mode="same", boundary="fill", fillvalue=0.0))
+            mean_h = float(np.median(h))
+            if mean_h != 0.0:
+                h = h / mean_h
+            h = np.power(h, float(alpha))
+            ph_filt = np.fft.ifft2(ph_fft * h)[: int(n_win), : int(n_win)] * wf2
+            out[i1:i2, j1:j2] += ph_filt.astype(np.complex64)
+            if out_low is not None and low_filter is not None:
+                ph_filt_low = np.fft.ifft2(ph_fft * low_filter)[: int(n_win), : int(n_win)] * wf2
+                out_low[i1:i2, j1:j2] += ph_filt_low.astype(np.complex64)
+
+    ph_mag = np.abs(ph_arr).astype(np.float32)
+    out = (ph_mag * np.exp(1j * np.angle(out))).astype(np.complex64)
+    if out_low is not None:
+        out_low = (ph_mag * np.exp(1j * np.angle(out_low))).astype(np.complex64)
+    return out, out_low
+
+
+def _reference_wrap_filt_global(
+    ph: np.ndarray,
+    n_win: int,
+    alpha: float,
+    n_pad: int,
+    low_flag: str,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    ph_arr = np.asarray(ph, dtype=np.complex64).copy()
+    ph_arr[np.isnan(ph_arr)] = 0
+    n_i, n_j = ph_arr.shape
+    n_inc = max(1, int(n_win) // 2)
+    n_win_count_i = max(1, int(np.ceil(n_i / n_inc) - 1))
+    n_win_count_j = max(1, int(np.ceil(n_j / n_inc) - 1))
+    out = np.zeros((n_i, n_j), dtype=np.complex64)
+    want_low = str(low_flag).lower() == "y"
+    out_low = np.zeros((n_i, n_j), dtype=np.complex64) if want_low else None
+
+    half = int(n_win) // 2
+    x = np.arange(1, half + 1, dtype=np.float32)
+    X, Y = np.meshgrid(x, x)
+    wind_func = np.concatenate((X + Y, np.fliplr(X + Y)), axis=1)
+    wind_func = np.concatenate((wind_func, np.flipud(wind_func)), axis=0).astype(np.float32)
+    b = np.outer(ported._gausswin(7), ported._gausswin(7)).astype(np.float32)
+    ph_bit = np.zeros((int(n_win) + int(n_pad), int(n_win) + int(n_pad)), dtype=np.complex64)
+    low_filter = None
+    if want_low:
+        g = ported._gausswin(int(n_win) + int(n_pad), alpha=16.0)
+        low_filter = np.fft.ifftshift(np.outer(g, g))
+
+    for ix1 in range(n_win_count_i):
+        wf = wind_func.copy()
+        i1 = ix1 * n_inc
+        i2 = i1 + int(n_win)
+        if i2 > n_i:
+            i_shift = i2 - n_i
+            i2 = n_i
+            i1 = n_i - int(n_win)
+            wf = np.vstack((np.zeros((i_shift, int(n_win)), dtype=np.float32), wf[: int(n_win) - i_shift, :]))
+        for ix2 in range(n_win_count_j):
+            wf2 = wf.copy()
+            j1 = ix2 * n_inc
+            j2 = j1 + int(n_win)
+            if j2 > n_j:
+                j_shift = j2 - n_j
+                j2 = n_j
+                j1 = n_j - int(n_win)
+                wf2 = np.hstack((np.zeros((int(n_win), j_shift), dtype=np.float32), wf2[:, : int(n_win) - j_shift]))
+            ph_bit.fill(0)
+            ph_bit[: int(n_win), : int(n_win)] = ph_arr[i1:i2, j1:j2]
+            ph_fft = np.fft.fft2(ph_bit)
+            h = np.abs(ph_fft)
+            h = np.fft.ifftshift(signal.convolve2d(np.fft.fftshift(h), b, mode="same", boundary="fill", fillvalue=0.0))
+            mean_h = float(np.median(h))
+            if mean_h != 0.0:
+                h = h / mean_h
+            h = np.power(h, float(alpha))
+            ph_filt = np.fft.ifft2(ph_fft * h)[: int(n_win), : int(n_win)] * wf2
+            out[i1:i2, j1:j2] += ph_filt
+            if out_low is not None and low_filter is not None:
+                ph_filt_low = np.fft.ifft2(ph_fft * low_filter)[: int(n_win), : int(n_win)] * wf2
+                out_low[i1:i2, j1:j2] += ph_filt_low
+
+    magnitude = np.abs(ph_arr)
+    out = (magnitude * np.exp(1j * np.angle(out))).astype(np.complex64)
+    if out_low is not None:
+        out_low = (magnitude * np.exp(1j * np.angle(out_low))).astype(np.complex64)
+    return out, out_low
 
 
 def _install_fake_stage78_native_backends(
@@ -77,6 +381,21 @@ def _install_fake_stage78_native_backends(
                 "mean_v": np.full(n_ps, 15.0, dtype=np.float32),
                 "m": np.full((2, n_ps), 16.0, dtype=np.float32),
             }
+
+        def stage7_scla_smooth(
+            self,
+            k_ps_uw: np.ndarray,
+            c_ps_uw: np.ndarray,
+            edges: np.ndarray,
+            threads: int = 0,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            calls.append(("stage7_smooth", int(threads), tuple(np.asarray(edges).shape)))
+            n_ps = np.asarray(k_ps_uw).size
+            assert np.asarray(c_ps_uw).shape == (n_ps,)
+            return (
+                np.full(n_ps, 21.0, dtype=np.float32),
+                np.full(n_ps, 22.0, dtype=np.float32),
+            )
 
         def stage8_edge_noise(
             self,
@@ -373,6 +692,20 @@ def test_stage2_histogram_kernel_cpu_fallback(monkeypatch: pytest.MonkeyPatch) -
     np.testing.assert_allclose(observed, np.asarray([1.0, 2.0, 1.0], dtype=np.float64), atol=0.0, rtol=0.0)
 
 
+def test_explicit_stage5_native_backend_errors_when_native_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(accel, "stage5_native_available", lambda: False)
+
+    with pytest.raises(BackendUnavailableError, match="native"):
+        run_stage5_ifg_std_kernel(
+            np.ones((1, 2), dtype=np.complex64),
+            np.ones((1, 2), dtype=np.complex64),
+            np.asarray([0.0, 1.0], dtype=np.float64),
+            np.asarray([0.0], dtype=np.float32),
+            np.asarray([0.0], dtype=np.float32),
+            backend="native",
+        )
+
+
 def test_stage2_histogram_kernel_equal_spacing_matches_octave_rule() -> None:
     centers = np.asarray([0.005, 0.015, 0.025, 0.035], dtype=np.float64)
     values = np.asarray([0.01, 0.02, 0.03], dtype=np.float64)
@@ -406,6 +739,21 @@ def test_describe_backend_matrix_reports_registered_coverage() -> None:
     assert "cuda" in matrix["kernels"]["stage8_edge_noise"]["supported_backends"]
 
 
+def test_coverage_manifest_clears_unavailable_reason_for_available_provider() -> None:
+    registry = KernelRegistry()
+    registry.register_provider(
+        "native",
+        description="Native test backend",
+        availability_probe=lambda: True,
+        unavailable_reason="missing native backend",
+    )
+
+    provider = registry.coverage_manifest()["providers"]["native"]
+
+    assert provider["available"] is True
+    assert provider["unavailable_reason"] == ""
+
+
 def test_describe_backend_matrix_reports_stage7_stage8_native_support(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -415,9 +763,11 @@ def test_describe_backend_matrix_reports_stage7_stage8_native_support(
 
     assert "native" in matrix["kernels"]["stage4_edge_stats"]["supported_backends"]
     assert "native" in matrix["kernels"]["stage7_scla"]["supported_backends"]
+    assert "native" in matrix["kernels"]["stage7_scla_smooth"]["supported_backends"]
     assert "native" in matrix["kernels"]["stage8_edge_noise"]["supported_backends"]
     assert "native" in matrix["kernels"]["stage4_edge_stats"]["available_backends"]
     assert "native" in matrix["kernels"]["stage7_scla"]["available_backends"]
+    assert "native" in matrix["kernels"]["stage7_scla_smooth"]["available_backends"]
     assert "native" in matrix["kernels"]["stage8_edge_noise"]["available_backends"]
 
 
@@ -602,14 +952,14 @@ def test_stage2_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPat
     )
     topofit = run_stage2_topofit_kernel(
         np.ones((2, 3), dtype=np.complex128),
-        np.asarray([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], dtype=np.float64),
+        np.asarray([[1.0, 2.0, 3.0], [2.0, 4.0, 6.0]], dtype=np.float64),
         1.0,
         backend="native",
         threads=4,
     )
     topofit_single = run_stage2_topofit_kernel(
         np.ones((2, 3), dtype=np.complex64),
-        np.asarray([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], dtype=np.float32),
+        np.asarray([[1.0, 2.0, 3.0], [2.0, 4.0, 6.0]], dtype=np.float32),
         1.0,
         backend="native",
         threads=5,
@@ -634,29 +984,305 @@ def test_stage2_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPat
         backend="native",
     )
 
-    expected_topofit = ported._ps_topofit_batch_generic(
-        np.ones((2, 3), dtype=np.complex128),
-        np.asarray([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], dtype=np.float64),
-        1.0,
-    )
-    expected_row = ported._ps_topofit_batch_row_invariant(
-        np.ones((2, 3), dtype=np.complex128),
-        np.asarray([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], dtype=np.float64),
-        1.0,
-    )
-    expected_coh = ported._ps_topofit_batch_row_invariant_coh(
-        np.ones((2, 3), dtype=np.complex128),
-        np.asarray([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], dtype=np.float64),
-        1.0,
+    assert calls == ["grid:3", "topofit:4", "topofit32:5", "row:2", "rowcoh:6", "hist"]
+    np.testing.assert_allclose(grid, np.full((2, 1, 3), 7 + 0j, dtype=np.complex64))
+    np.testing.assert_allclose(topofit[0], np.full(2, 1.0, dtype=np.float64), atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(topofit_single[0], np.full(2, 1.5, dtype=np.float64), atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(topofit_row[0], np.full(2, 5.0, dtype=np.float64), atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(coh_row, np.full(2, 9.0, dtype=np.float64), atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(hist, np.asarray([2.0, 1.0, 0.0], dtype=np.float64))
+
+
+def test_stage6_unwrap_grid_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, float, tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage6_unwrap_grid(
+            self,
+            ifgw: np.ndarray,
+            rowcost: np.ndarray,
+            colcost: np.ndarray,
+            nshortcycle: float,
+            threads: int,
+        ) -> dict[str, np.ndarray | float]:
+            calls.append((int(threads), float(nshortcycle), tuple(np.asarray(ifgw).shape)))
+            assert np.asarray(rowcost).dtype == np.int16
+            assert np.asarray(colcost).dtype == np.int16
+            return {
+                "ifguw": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+                "msd": 5.5,
+            }
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = run_stage6_unwrap_grid_kernel(
+        np.ones((2, 2), dtype=np.complex64),
+        np.zeros((1, 8), dtype=np.int16),
+        np.zeros((2, 4), dtype=np.int16),
+        backend="native",
+        nshortcycle=200.0,
+        threads=3,
     )
 
-    assert calls == ["grid:3", "hist"]
-    np.testing.assert_allclose(grid, np.full((2, 1, 3), 7 + 0j, dtype=np.complex64))
-    np.testing.assert_allclose(topofit[0], expected_topofit[0], atol=0.0, rtol=0.0)
-    np.testing.assert_allclose(topofit_single[0], expected_topofit[0], atol=0.0, rtol=0.0)
-    np.testing.assert_allclose(topofit_row[0], expected_row[0], atol=0.0, rtol=0.0)
-    np.testing.assert_allclose(coh_row, expected_coh, atol=0.0, rtol=0.0)
-    np.testing.assert_allclose(hist, np.asarray([2.0, 1.0, 0.0], dtype=np.float64))
+    assert calls == [(3, 200.0, (2, 2))]
+    np.testing.assert_array_equal(out["ifguw"], np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
+    assert out["msd"] == 5.5
+
+
+def test_stage6_extract_grid_values_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage6_extract_grid_values(
+            self,
+            ifguw: np.ndarray,
+            nzix: np.ndarray,
+            threads: int,
+        ) -> np.ndarray:
+            calls.append((int(threads), tuple(np.asarray(ifguw).shape)))
+            assert np.asarray(nzix).dtype == np.bool_
+            return np.asarray([9.0, 8.0, 7.0], dtype=np.float32)
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = run_stage6_extract_grid_values_kernel(
+        np.ones((2, 3), dtype=np.float32),
+        np.asarray([[True, False, True], [False, True, False]], dtype=bool),
+        backend="native",
+        threads=4,
+    )
+
+    assert calls == [(4, (2, 3))]
+    np.testing.assert_array_equal(out, np.asarray([9.0, 8.0, 7.0], dtype=np.float32))
+
+
+def test_stage6_estimate_la_error_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, float, tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage6_estimate_la_error_single_master(
+            self,
+            dph_space: np.ndarray,
+            day: np.ndarray,
+            bperp: np.ndarray,
+            n_trial_wraps: float,
+            threads: int,
+        ) -> np.ndarray:
+            calls.append((int(threads), float(n_trial_wraps), tuple(np.asarray(dph_space).shape)))
+            assert np.asarray(dph_space).dtype == np.complex64
+            assert np.asarray(day).dtype == np.float64
+            assert np.asarray(bperp).dtype == np.float64
+            return np.asarray([0.25, -0.5], dtype=np.float32)
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = accel.run_stage6_estimate_la_error_kernel(
+        np.ones((2, 3), dtype=np.complex64),
+        np.asarray([-12.0, 6.0, 18.0], dtype=np.float64),
+        np.asarray([30.0, -10.0, 45.0], dtype=np.float64),
+        2.5,
+        backend="native",
+        threads=4,
+    )
+
+    assert calls == [(4, 2.5, (2, 3))]
+    np.testing.assert_array_equal(out, np.asarray([0.25, -0.5], dtype=np.float32))
+
+
+def test_stage6_smooth_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, float, tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage6_smooth_3d_full_single_master(
+            self,
+            dph_space: np.ndarray,
+            day: np.ndarray,
+            time_win: float,
+            threads: int,
+        ) -> dict[str, np.ndarray]:
+            calls.append((int(threads), float(time_win), tuple(np.asarray(dph_space).shape)))
+            assert np.asarray(dph_space).dtype == np.complex64
+            assert np.asarray(day).dtype == np.float64
+            return {
+                "dph_smooth_uw": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+                "dph_noise": np.asarray([[0.1, -0.1], [0.2, -0.2]], dtype=np.float32),
+            }
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = accel.run_stage6_smooth_3d_full_single_master_kernel(
+        np.ones((2, 2), dtype=np.complex64),
+        np.asarray([-10.0, 20.0], dtype=np.float64),
+        36.0,
+        backend="native",
+        threads=5,
+    )
+
+    assert calls == [(5, 36.0, (2, 2))]
+    np.testing.assert_array_equal(out[0], np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
+    np.testing.assert_array_equal(out[1], np.asarray([[0.1, -0.1], [0.2, -0.2]], dtype=np.float32))
+
+
+def test_stage5_ifg_std_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage5_ifg_std(
+            self,
+            ph2: np.ndarray,
+            ph_patch: np.ndarray,
+            bperp: np.ndarray,
+            k_ps: np.ndarray,
+            c_ps: np.ndarray,
+            threads: int,
+        ) -> np.ndarray:
+            calls.append((int(threads), tuple(np.asarray(ph2).shape)))
+            assert np.asarray(ph_patch).shape == np.asarray(ph2).shape
+            assert np.asarray(bperp).shape == np.asarray(ph2).shape
+            assert np.asarray(k_ps).shape == (2,)
+            assert np.asarray(c_ps).shape == (2,)
+            return np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = run_stage5_ifg_std_kernel(
+        np.ones((2, 3), dtype=np.complex64),
+        np.ones((2, 3), dtype=np.complex64),
+        np.zeros((2, 3), dtype=np.float64),
+        np.asarray([0.1, 0.2], dtype=np.float64),
+        np.asarray([0.3, 0.4], dtype=np.float64),
+        backend="native",
+        threads=4,
+    )
+
+    assert calls == [(4, (2, 3))]
+    np.testing.assert_array_equal(out, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+
+
+def test_stage7_scla_smooth_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage7_scla_smooth(
+            self,
+            k_ps_uw: np.ndarray,
+            c_ps_uw: np.ndarray,
+            edges: np.ndarray,
+            threads: int,
+        ) -> tuple[np.ndarray, np.ndarray]:
+            calls.append((int(threads), tuple(np.asarray(edges).shape)))
+            return (
+                np.asarray([1.0, 2.0], dtype=np.float32),
+                np.asarray([3.0, 4.0], dtype=np.float32),
+            )
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    k_out, c_out = run_stage7_scla_smooth_kernel(
+        np.asarray([10.0, 20.0], dtype=np.float32),
+        np.asarray([30.0, 40.0], dtype=np.float32),
+        np.asarray([[0, 1]], dtype=np.int64),
+        backend="native",
+        threads=5,
+    )
+
+    assert calls == [(5, (1, 2))]
+    np.testing.assert_array_equal(k_out, np.asarray([1.0, 2.0], dtype=np.float32))
+    np.testing.assert_array_equal(c_out, np.asarray([3.0, 4.0], dtype=np.float32))
+
+
+def test_stage7_mean_velocity_fit_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int], int]] = []
+
+    class _FakeNative:
+        def stage7_mean_velocity_fit(
+            self,
+            ph_mean_v: np.ndarray,
+            day: np.ndarray,
+            master_ix: int,
+            ifg_std: np.ndarray,
+            threads: int,
+        ) -> np.ndarray:
+            calls.append((int(threads), tuple(np.asarray(ph_mean_v).shape), int(master_ix)))
+            assert np.asarray(ph_mean_v).dtype == np.float64
+            assert np.asarray(day).dtype == np.float64
+            assert np.asarray(ifg_std).dtype == np.float64
+            return np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = accel.run_stage7_mean_velocity_fit_kernel(
+        np.ones((2, 3), dtype=np.float64),
+        np.asarray([0.0, 5.0, 12.0], dtype=np.float64),
+        master_ix=2,
+        ifg_std=np.asarray([1.0, 2.0, 4.0], dtype=np.float64),
+        backend="native",
+        threads=6,
+    )
+
+    assert calls == [(6, (2, 3), 2)]
+    np.testing.assert_array_equal(out, np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
+
+
+def test_stage7_deramp_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int], tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage7_deramp_unwrapped_phase(
+            self,
+            xy: np.ndarray,
+            ph_all: np.ndarray,
+            threads: int,
+        ) -> dict[str, np.ndarray]:
+            calls.append((int(threads), tuple(np.asarray(xy).shape), tuple(np.asarray(ph_all).shape)))
+            assert np.asarray(xy).dtype == np.float64
+            assert np.asarray(ph_all).dtype == np.float64
+            return {
+                "ph_out": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64),
+                "ph_ramp": np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype=np.float64),
+            }
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = accel.run_stage7_deramp_unwrapped_phase_kernel(
+        np.ones((2, 3), dtype=np.float64),
+        np.ones((2, 2), dtype=np.float64),
+        backend="native",
+        threads=7,
+    )
+
+    assert calls == [(7, (2, 3), (2, 2))]
+    np.testing.assert_array_equal(out[0], np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64))
+    np.testing.assert_array_equal(out[1], np.asarray([[0.1, 0.2], [0.3, 0.4]], dtype=np.float64))
+
+
+def test_stage8_weighted_lstsq_native_dispatch_uses_native_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int], tuple[int, int]]] = []
+
+    class _FakeNative:
+        def stage8_weighted_lstsq_diagonal(
+            self,
+            design: np.ndarray,
+            values: np.ndarray,
+            variances: np.ndarray,
+            threads: int,
+        ) -> np.ndarray:
+            calls.append((int(threads), tuple(np.asarray(design).shape), tuple(np.asarray(values).shape)))
+            assert np.asarray(variances).shape == (3,)
+            return np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
+
+    monkeypatch.setattr(accel, "_load_stage2_native_module", lambda: _FakeNative())
+
+    out = run_stage8_weighted_lstsq_kernel(
+        np.ones((3, 2), dtype=np.float64),
+        np.ones((3, 2), dtype=np.float64),
+        covariance=np.diag(np.asarray([1.0, 2.0, 3.0], dtype=np.float64)),
+        backend="native",
+        threads=7,
+    )
+
+    assert calls == [(7, (3, 2), (3, 2))]
+    np.testing.assert_array_equal(out, np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64))
 
 
 @pytest.mark.skipif(
@@ -707,6 +1333,1202 @@ def test_stage2_native_kernels_match_python_reference() -> None:
     )
     np.testing.assert_allclose(hist_observed, hist_expected, atol=0.0, rtol=0.0)
     np.testing.assert_allclose(hist_observed, np.asarray([1.0, 2.0, 1.0], dtype=np.float64), atol=0.0, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage2_ph_weight_block_native_matches_python_reference() -> None:
+    ph_nm = np.asarray(
+        [
+            [0.7 + 0.2j, -0.3 + 0.9j, 0.1 - 0.8j],
+            [0.6 - 0.4j, -0.2 + 0.5j, -0.9 - 0.1j],
+        ],
+        dtype=np.complex64,
+    )
+    bperp = np.asarray(
+        [
+            [12345.678, -9876.543, 5432.1],
+            [-22222.25, 11111.75, 3333.333],
+        ],
+        dtype=np.float64,
+    )
+    k_ps = np.asarray([0.000123456789, -0.000987654321], dtype=np.float64)
+    weighting = np.asarray([0.25, 0.75], dtype=np.float64)
+
+    expected = ported._stage2_ph_weight_block(ph_nm, bperp, k_ps, weighting)
+    observed = run_stage2_ph_weight_block_kernel(ph_nm, bperp, k_ps, weighting, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-6, rtol=0.0)
+    assert observed.dtype == np.complex64
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage2_grid_indices_native_matches_python_reference() -> None:
+    xy = np.asarray(
+        [
+            [1.0, 100.0, 200.0],
+            [2.0, 120.1, 245.5],
+            [3.0, 159.9, 260.0],
+            [4.0, 100.0, 200.0],
+        ],
+        dtype=np.float64,
+    )
+
+    expected = ported._stage2_grid_indices(xy, 30.0)
+    observed = run_stage2_grid_indices_kernel(xy, 30.0, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=0.0, rtol=0.0)
+    assert observed.dtype == np.float32
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage2_clap_filter_native_matches_python_reference() -> None:
+    expected = ported._clap_filter_kernel()
+    observed = run_stage2_clap_filter_kernel(backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-15, rtol=1e-15)
+    assert observed.shape == (7, 7)
+    assert observed.dtype == np.float64
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage2_normalize_complex_native_matches_python_reference() -> None:
+    values = np.asarray(
+        [
+            [3.0 + 4.0j, 0.0 + 0.0j, -5.0 + 12.0j],
+            [0.25 - 0.75j, -2.0 - 2.0j, 1.0 + 0.0j],
+        ],
+        dtype=np.complex64,
+    )
+    expected = values.copy()
+    ported._normalize_complex_unit_magnitude_inplace(expected)
+
+    observed = run_stage2_normalize_complex_kernel(values, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-7, rtol=0.0)
+    assert observed.dtype == np.complex64
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage2_normalize_phase_matrix_native_matches_python_reference() -> None:
+    ph_nm = np.asarray(
+        [
+            [3.0 + 4.0j, 0.0 + 0.0j, -5.0 + 12.0j],
+            [0.25 - 0.75j, -2.0 - 2.0j, 1.0 + 0.0j],
+        ],
+        dtype=np.complex64,
+    )
+    expected_amp = np.abs(ph_nm).astype(np.float32)
+    expected_amp[expected_amp == 0] = 1.0
+    expected_ph = np.divide(ph_nm, expected_amp, out=np.zeros_like(ph_nm), where=expected_amp != 0).astype(np.complex64)
+
+    observed = run_stage2_normalize_phase_matrix_kernel(ph_nm, backend="native")
+
+    np.testing.assert_allclose(observed["ph"], expected_ph, atol=1e-7, rtol=0.0)
+    np.testing.assert_allclose(observed["amp"], expected_amp, atol=1e-6, rtol=0.0)
+    assert observed["ph"].dtype == np.complex64
+    assert observed["amp"].dtype == np.float32
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_unwraps_synthetic_ramp() -> None:
+    phase = np.asarray(
+        [
+            [0.2, 2.8, 3.4],
+            [0.4, 3.0, 3.6],
+        ],
+        dtype=np.float32,
+    )
+    ifgw = np.exp(1j * phase).astype(np.complex64)
+    rowcost = np.zeros((1, 12), dtype=np.int16)
+    colcost = np.zeros((2, 8), dtype=np.int16)
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+
+    observed = np.asarray(out["ifguw"], dtype=np.float32)
+    observed -= observed[0, 0] - phase[0, 0]
+    np.testing.assert_allclose(observed, phase, atol=1e-5, rtol=0.0)
+    assert float(out["msd"]) >= 0.0
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_uses_positive_laycost_arcs() -> None:
+    phase = np.asarray([[2.8, 3.4]], dtype=np.float32)
+    ifgw = np.exp(1j * phase).astype(np.complex64)
+    rowcost = np.zeros((0, 8), dtype=np.int16)
+    colcost = np.zeros((1, 4), dtype=np.int16)
+    colcost[0, 1] = 1
+    colcost[0, 2] = 32000
+    colcost[0, 3] = 1
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    observed = np.asarray(out["ifguw"], dtype=np.float32)
+    observed -= observed[0, 0] - phase[0, 0]
+
+    np.testing.assert_allclose(observed, phase, atol=1e-5, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_routes_real_residues_around_expensive_arcs() -> None:
+    pi = np.pi
+    phase = np.asarray(
+        [
+            [-pi, -pi / 2.0, -pi, -pi],
+            [pi / 2.0, 0.0, -pi / 2.0, 0.0],
+            [pi / 2.0, 0.0, -pi / 2.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    ifgw = np.exp(1j * phase).astype(np.complex64)
+    rowcost = np.zeros((2, 16), dtype=np.int16)
+    colcost = np.zeros((3, 12), dtype=np.int16)
+    rowcost[:, 1::4] = 1000
+    colcost[:, 1::4] = 1000
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+    rowcost[0, 1 * 4 + 1] = 1
+    rowcost[0, 2 * 4 + 1] = 1
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    observed = np.asarray(out["ifguw"], dtype=np.float32)
+    direct_flow = np.rint((observed[0, 1:3] - observed[1, 1:3]) / (2.0 * np.pi)).astype(np.int32)
+
+    np.testing.assert_array_equal(direct_flow, np.zeros(2, dtype=np.int32))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_uses_shortest_residue_route() -> None:
+    phase = np.asarray(
+        [
+            [-3.0, -3.0, -3.0, -3.0, -3.0],
+            [1.5, -1.5, -3.0, -1.5, 1.5],
+            [1.5, -1.5, -3.0, -1.5, 1.5],
+            [1.5, -1.5, -3.0, -1.5, 1.5],
+        ],
+        dtype=np.float32,
+    )
+    ifgw = np.exp(1j * phase).astype(np.complex64)
+    rowcost = np.zeros((3, 20), dtype=np.int16)
+    colcost = np.zeros((4, 16), dtype=np.int16)
+    rowcost[:, 1::4] = 1
+    colcost[:, 1::4] = 1
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+    rowcost[2, 1 * 4 + 1] = 1000
+    rowcost[2, 2 * 4 + 1] = 1000
+    rowcost[2, 3 * 4 + 1] = 1000
+    colcost[1, 0 * 4 + 1] = 1000
+    colcost[1, 3 * 4 + 1] = 1000
+    colcost[2, 0 * 4 + 1] = 1000
+    colcost[2, 3 * 4 + 1] = 1000
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    observed = np.asarray(out["ifguw"], dtype=np.float32)
+    direct_top = np.rint((observed[0, 1:4] - observed[1, 1:4]) / (2.0 * np.pi)).astype(np.int32)
+    direct_middle = np.rint((observed[1, 1:4] - observed[2, 1:4]) / (2.0 * np.pi)).astype(np.int32)
+    expensive_top_boundary = np.rint((observed[0, 1:] - observed[0, :-1]) / (2.0 * np.pi)).astype(np.int32)
+    cheap_deep_route = np.rint((observed[2, 1:4] - observed[3, 1:4]) / (2.0 * np.pi)).astype(np.int32)
+
+    np.testing.assert_array_equal(direct_top, np.zeros(3, dtype=np.int32))
+    np.testing.assert_array_equal(direct_middle, np.zeros(3, dtype=np.int32))
+    np.testing.assert_array_equal(expensive_top_boundary, np.zeros(4, dtype=np.int32))
+    assert np.count_nonzero(cheap_deep_route) > 0
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_uses_defo_cost_for_offset_only_inconsistent_loop() -> None:
+    ifgw = np.ones((2, 2), dtype=np.complex64)
+    rowcost = np.zeros((1, 8), dtype=np.int16)
+    colcost = np.zeros((2, 4), dtype=np.int16)
+    rowcost[:, 1::4] = 1
+    colcost[:, 1::4] = 1
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+
+    # Offset-derived cycle targets are intentionally inconsistent around the
+    # plaquette. They must not become branch-balance residues, but they still
+    # participate in the DEFO label cost.
+    rowcost[0, 0] = 0
+    rowcost[0, 4] = -1000
+    colcost[0, 0] = 1000
+    colcost[1, 0] = 0
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    labels = np.rint(np.asarray(out["ifguw"], dtype=np.float32) / (2.0 * np.pi)).astype(np.int32)
+    labels -= labels[0, 0]
+
+    np.testing.assert_array_equal(labels, np.asarray([[0, -2], [-2, -5]], dtype=np.int32))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_uses_defo_cost_for_offset_only_loop_error() -> None:
+    ifgw = np.ones((2, 2), dtype=np.complex64)
+    rowcost = np.zeros((1, 8), dtype=np.int16)
+    colcost = np.zeros((2, 4), dtype=np.int16)
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+    rowcost[:, 1::4] = np.asarray([[1, 5]], dtype=np.int16)
+    colcost[:, 1::4] = np.asarray([[1], [2]], dtype=np.int16)
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+
+    # Offset-derived cycle targets around the only plaquette are inconsistent.
+    # They should not be routed as wrapped-phase residues, but they do affect
+    # the final DEFO label objective.
+    colcost[0, 0] = 600
+    rowcost[0, 4] = -600
+    colcost[1, 0] = -400
+    rowcost[0, 0] = 0
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    labels = np.rint(np.asarray(out["ifguw"], dtype=np.float32) / (2.0 * np.pi)).astype(np.int32)
+    labels -= labels[0, 0]
+
+    np.testing.assert_array_equal(labels, np.asarray([[0, -2], [-1, -1]], dtype=np.int32))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_uses_defo_cost_for_offset_only_boundary_residue() -> None:
+    ifgw = np.ones((2, 3), dtype=np.complex64)
+    rowcost = np.zeros((1, 12), dtype=np.int16)
+    colcost = np.zeros((2, 8), dtype=np.int16)
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+    rowcost[:, 1::4] = np.asarray([[2, 50, 5]], dtype=np.int16)
+    colcost[:, 1::4] = np.asarray([[3, 1], [2, 1]], dtype=np.int16)
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+
+    # Offset-derived cycle targets create artificial curl. Wrapped phase is
+    # residue-free, so branch balancing leaves residue routing alone while
+    # DEFO label refinement can still move labels.
+    colcost[0, 0] = -600
+    colcost[0, 4] = 0
+    colcost[1, 0] = 200
+    colcost[1, 4] = 400
+    rowcost[0, 0] = -200
+    rowcost[0, 4] = 0
+    rowcost[0, 8] = 0
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    labels = np.rint(np.asarray(out["ifguw"], dtype=np.float32) / (2.0 * np.pi)).astype(np.int32)
+    labels -= labels[0, 0]
+
+    expected = np.asarray([[0, 1, 0], [0, 0, -2]], dtype=np.int32)
+    equivalent = np.asarray([[0, 1, 1], [0, 0, -2]], dtype=np.int32)
+    assert labels.tolist() in (expected.tolist(), equivalent.tolist())
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_uses_defo_cost_for_offset_only_residue_pair() -> None:
+    ifgw = np.ones((2, 3), dtype=np.complex64)
+    rowcost = np.zeros((1, 12), dtype=np.int16)
+    colcost = np.zeros((2, 8), dtype=np.int16)
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+    rowcost[:, 1::4] = np.asarray([[3, 5, 5]], dtype=np.int16)
+    colcost[:, 1::4] = np.asarray([[5, 50], [1, 1]], dtype=np.int16)
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+
+    # Offset targets would form adjacent artificial residues. These are not
+    # wrapped-phase residues, so branch balancing stays on the phase graph and
+    # label refinement handles the cost tension.
+    colcost[0, 0] = 0
+    colcost[0, 4] = -200
+    colcost[1, 0] = -200
+    colcost[1, 4] = 400
+    rowcost[0, 0] = -400
+    rowcost[0, 4] = -600
+    rowcost[0, 8] = 400
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    labels = np.rint(np.asarray(out["ifguw"], dtype=np.float32) / (2.0 * np.pi)).astype(np.int32)
+    labels -= labels[0, 0]
+
+    np.testing.assert_array_equal(labels, np.asarray([[0, 1, -4], [-2, -1, -3]], dtype=np.int32))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_native_unwrap_grid_accepts_patch_shift_for_separated_offset_targets() -> None:
+    ifgw = np.ones((2, 4), dtype=np.complex64)
+    rowcost = np.zeros((1, 16), dtype=np.int16)
+    colcost = np.zeros((2, 12), dtype=np.int16)
+    rowcost[:, 3::4] = -32000
+    colcost[:, 3::4] = -32000
+    rowcost[:, 1::4] = np.asarray([[1, 50, 50, 1]], dtype=np.int16)
+    colcost[:, 1::4] = 1
+    rowcost[:, 2::4] = 32000
+    colcost[:, 2::4] = 32000
+
+    # Desired horizontal jumps are top [1, 0, -1], bottom [0, 0, 0].
+    # These offset targets are not treated as wrapped-phase residues during
+    # branch balancing, but later DEFO objective refinement can still move a
+    # bounded patch when it lowers the edge cost.
+    colcost[0, 0] = 200
+    colcost[0, 4] = 0
+    colcost[0, 8] = -200
+
+    out = run_stage6_unwrap_grid_kernel(ifgw, rowcost, colcost, backend="native")
+    labels = np.rint(np.asarray(out["ifguw"], dtype=np.float32) / (2.0 * np.pi)).astype(np.int32)
+    labels -= labels[0, 0]
+
+    np.testing.assert_array_equal(labels, np.asarray([[0, -1, -1, 0], [0, 0, 0, 0]], dtype=np.int32))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_extract_grid_values_native_matches_python_reference() -> None:
+    ifguw = np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
+    nzix = np.asarray([[True, False, True], [False, True, False]], dtype=bool)
+
+    expected = run_stage6_extract_grid_values_kernel(ifguw, nzix, backend="python")
+    observed = run_stage6_extract_grid_values_kernel(ifguw, nzix, backend="native")
+
+    np.testing.assert_array_equal(observed, expected)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_prepare_cost_offsets_native_matches_python_reference() -> None:
+    rowcost_base = np.zeros((2, 8), dtype=np.int16)
+    colcost_base = np.zeros((3, 4), dtype=np.int16)
+    rowcost_base[:, 1::4] = np.asarray([[3, 5], [7, 11]], dtype=np.int16)
+    rowcost_base[:, 2::4] = 32000
+    rowcost_base[:, 3::4] = np.asarray([[-32000, 1], [-32000, -32000]], dtype=np.int16)
+    colcost_base[:, 1::4] = np.asarray([[13], [17], [19]], dtype=np.int16)
+    colcost_base[:, 2::4] = 32000
+    colcost_base[:, 3::4] = np.asarray([[-32000], [-32000], [1]], dtype=np.int16)
+    rowix = np.asarray([[1.0, -2.0], [0.0, np.nan]], dtype=np.float64)
+    colix = np.asarray([[2.0], [-1.0], [np.nan]], dtype=np.float64)
+    wrapped = np.asarray([1.25, -0.5], dtype=np.float32)
+    smooth = np.asarray([0.25, 0.75], dtype=np.float32)
+
+    expected_row, expected_col = run_stage6_prepare_cost_offsets_kernel(
+        rowcost_base,
+        colcost_base,
+        rowix,
+        colix,
+        wrapped,
+        smooth,
+        nshortcycle=200.0,
+        backend="python",
+    )
+    observed_row, observed_col = run_stage6_prepare_cost_offsets_kernel(
+        rowcost_base,
+        colcost_base,
+        rowix,
+        colix,
+        wrapped,
+        smooth,
+        nshortcycle=200.0,
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(observed_row, expected_row)
+    np.testing.assert_array_equal(observed_col, expected_col)
+    np.testing.assert_array_equal(rowcost_base[:, 0::4], np.zeros((2, 2), dtype=np.int16))
+    np.testing.assert_array_equal(colcost_base[:, 0::4], np.zeros((3, 1), dtype=np.int16))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_reconstruct_ps_phase_native_matches_python_reference() -> None:
+    ph_uw_grid = np.asarray(
+        [
+            [0.2, 1.1, -2.4],
+            [3.4, -0.7, 2.2],
+            [-1.5, 0.6, 4.0],
+        ],
+        dtype=np.float32,
+    )
+    ps_grid_idx = np.asarray([1, 0, 3, 2], dtype=np.int64)
+    phase_in = np.asarray(
+        [
+            [0.4, 1.3, -2.1],
+            [2.0, -1.0, 0.5],
+            [-1.2, 0.9, -2.0],
+            [-2.5, 1.7, 2.8],
+        ],
+        dtype=np.float32,
+    )
+    ph_in = np.exp(1j * phase_in).astype(np.complex64)
+    phase_restore = np.asarray(
+        [
+            [0.1, 0.2, 0.3],
+            [9.0, 9.0, 9.0],
+            [-0.5, 0.0, 0.5],
+            [1.0, -1.0, 0.25],
+        ],
+        dtype=np.float32,
+    )
+
+    expected = run_stage6_reconstruct_ps_phase_kernel(
+        ph_uw_grid,
+        ps_grid_idx,
+        ph_in,
+        phase_restore=phase_restore,
+        backend="python",
+    )
+    observed = run_stage6_reconstruct_ps_phase_kernel(
+        ph_uw_grid,
+        ps_grid_idx,
+        ph_in,
+        phase_restore=phase_restore,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-6, rtol=0.0, equal_nan=True)
+    assert np.isnan(observed[1, :]).all()
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_ps_grid_indices_native_matches_python_reference() -> None:
+    nzix = np.asarray(
+        [
+            [True, False, True],
+            [False, True, True],
+            [True, False, False],
+        ],
+        dtype=bool,
+    )
+    grid_ij = np.asarray(
+        [
+            [1, 1],
+            [2, 1],
+            [3, 1],
+            [1, 2],
+            [2, 2],
+            [3, 3],
+        ],
+        dtype=np.int64,
+    )
+
+    gridix_flat = np.zeros(nzix.size, dtype=np.int64)
+    nz_flat_f = np.flatnonzero(nzix.reshape(-1, order="F"))
+    gridix_flat[nz_flat_f] = np.arange(1, int(np.count_nonzero(nzix)) + 1, dtype=np.int64)
+    expected = gridix_flat.reshape(nzix.shape, order="F")[grid_ij[:, 0] - 1, grid_ij[:, 1] - 1]
+    observed = run_stage6_ps_grid_indices_kernel(nzix, grid_ij, backend="native")
+
+    np.testing.assert_array_equal(observed, expected)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_select_ifgw_native_matches_python_reference() -> None:
+    uw_ph = np.asarray(
+        [
+            [1.0 + 0.0j, 0.5 + 0.5j],
+            [0.0 + 1.0j, -0.5 + 0.25j],
+            [-1.0 + 0.0j, 0.0 - 1.0j],
+            [0.25 - 0.75j, 1.0 + 0.25j],
+        ],
+        dtype=np.complex64,
+    )
+    z = np.asarray([[1, 3, 2], [4, 1, 3]], dtype=np.int64)
+
+    expected = np.asarray(uw_ph[z - 1, 1], dtype=np.complex64)
+    observed = run_stage6_select_ifgw_kernel(uw_ph, z, 1, backend="native")
+
+    np.testing.assert_array_equal(observed, expected)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_select_ifg_index_native_matches_python_reference() -> None:
+    observed = run_stage3_select_ifg_index_kernel(
+        n_ifg=6,
+        master_ix=3,
+        drop_ifg_index=np.asarray([2, 6], dtype=np.int64),
+        small_baseline=False,
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(
+        observed,
+        np.asarray([1.0, 3.0, 4.0], dtype=np.float64),
+    )
+
+    sb_observed = run_stage3_select_ifg_index_kernel(
+        n_ifg=6,
+        master_ix=3,
+        drop_ifg_index=np.asarray([2, 6], dtype=np.int64),
+        small_baseline=True,
+        backend="native",
+    )
+    np.testing.assert_array_equal(
+        sb_observed,
+        np.asarray([1.0, 3.0, 4.0, 5.0], dtype=np.float64),
+    )
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_coh_threshold_native_matches_python_reference() -> None:
+    coh_values = np.asarray(
+        [0.06, 0.12, 0.18, 0.31, 0.44, 0.57, 0.68, 0.73, 0.82, 0.91, 0.0, np.nan],
+        dtype=np.float64,
+    )
+    d_a = np.asarray([0.1, 0.12, 0.16, 0.22, 0.28, 0.32, 0.38, 0.42, 0.48, 0.52, 0.58, 0.62], dtype=np.float64)
+    d_a_max = np.asarray([0.0, 0.2, 0.4, 0.7], dtype=np.float64)
+    coh_bins = np.arange(0.005, 1.0, 0.01, dtype=np.float64)
+    nr_dist = np.linspace(1.0, 2.0, coh_bins.size, dtype=np.float64)
+
+    expected_thresh, expected_coeffs = ported._coh_threshold_from_dist(
+        coh_values=coh_values,
+        D_A=d_a,
+        D_A_max=d_a_max,
+        coh_bins=coh_bins,
+        Nr_dist=nr_dist,
+        low_coh_thresh=31,
+        max_percent_rand=3.0,
+        select_method="DENSITY",
+        histogram_backend="python",
+    )
+    observed_thresh, observed_coeffs = run_stage3_coh_threshold_kernel(
+        coh_values,
+        d_a,
+        d_a_max,
+        coh_bins,
+        nr_dist,
+        low_coh_thresh=31,
+        max_percent_rand=3.0,
+        select_method="DENSITY",
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed_thresh, expected_thresh, atol=1e-12, rtol=1e-12)
+    np.testing.assert_allclose(observed_coeffs, expected_coeffs, atol=1e-12, rtol=1e-12)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_clap_filt_patch_native_matches_python_reference() -> None:
+    yy, xx = np.mgrid[0:8, 0:8]
+    ph = (np.exp(1j * (0.2 * xx + 0.35 * yy)) * (1.0 + 0.05 * xx)).astype(np.complex128)
+    ph[2, 3] = np.nan + 0j
+    low_pass = np.full((8, 8), 0.15, dtype=np.float64)
+    low_pass[0, 0] = 0.6
+
+    expected = _reference_clap_filt_patch(ph, alpha=1.1, beta=0.25, low_pass=low_pass)
+    observed = run_stage3_clap_filt_patch_kernel(ph, alpha=1.1, beta=0.25, low_pass=low_pass, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-10, rtol=1e-10)
+    assert observed.dtype == np.complex128
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_clap_filt_patch_native_matches_odd_sized_python_reference() -> None:
+    yy, xx = np.mgrid[0:7, 0:9]
+    ph = (np.exp(1j * (0.17 * xx - 0.29 * yy)) * (1.0 + 0.03 * yy)).astype(np.complex128)
+    ph[4, 1] = np.nan + 0j
+    low_pass = np.full((7, 9), 0.12, dtype=np.float64)
+    low_pass[0, 0] = 0.5
+
+    expected = _reference_clap_filt_patch(ph, alpha=1.3, beta=0.35, low_pass=low_pass)
+    observed = run_stage3_clap_filt_patch_kernel(ph, alpha=1.3, beta=0.35, low_pass=low_pass, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-10, rtol=1e-10)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_clap_filt_grid_native_matches_python_reference() -> None:
+    yy, xx = np.mgrid[0:7, 0:8]
+    ph = (np.exp(1j * (0.19 * xx - 0.11 * yy)) * (1.0 + 0.02 * xx + 0.03 * yy)).astype(np.complex64)
+    ph[2, 5] = np.nan + 0j
+    low_pass = np.full((6, 6), 0.08, dtype=np.float64)
+    low_pass[0, 0] = 0.4
+
+    expected = _reference_clap_filt_grid(
+        ph,
+        alpha=1.2,
+        beta=0.27,
+        n_win=4,
+        n_pad=2,
+        low_pass=low_pass,
+    )
+    observed = run_stage3_clap_filt_grid_kernel(
+        ph,
+        alpha=1.2,
+        beta=0.27,
+        n_win=4,
+        n_pad=2,
+        low_pass=low_pass,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-5, rtol=1e-5)
+    assert observed.dtype == np.complex64
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_clap_filt_grid_stack_native_matches_python_reference() -> None:
+    yy, xx = np.mgrid[0:7, 0:8]
+    base = np.exp(1j * (0.13 * xx + 0.21 * yy)) * (1.0 + 0.01 * xx + 0.02 * yy)
+    ph = np.stack(
+        [
+            base,
+            np.conj(base) * (1.0 + 0.05 * yy),
+            np.exp(1j * (0.31 * xx - 0.07 * yy)),
+        ],
+        axis=2,
+    ).astype(np.complex64)
+    ph[1, 6, 0] = np.nan + 0j
+    ph[4, 2, 2] = np.nan + 0j
+    low_pass = np.full((6, 6), 0.06, dtype=np.float64)
+    low_pass[0, 0] = 0.35
+
+    expected = _reference_clap_filt_grid_stack(
+        ph,
+        alpha=1.15,
+        beta=0.22,
+        n_win=4,
+        n_pad=2,
+        low_pass=low_pass,
+    )
+    observed = run_stage3_clap_filt_grid_stack_kernel(
+        ph,
+        alpha=1.15,
+        beta=0.22,
+        n_win=4,
+        n_pad=2,
+        low_pass=low_pass,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-5, rtol=1e-5)
+    assert observed.dtype == np.complex64
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_wrap_filt_native_matches_python_reference_with_low_output() -> None:
+    yy, xx = np.mgrid[0:7, 0:8]
+    ph = (np.exp(1j * (0.23 * xx - 0.17 * yy)) * (1.0 + 0.04 * xx)).astype(np.complex64)
+    ph[2, 4] = np.nan + 0j
+
+    expected, expected_low = _reference_wrap_filt(ph, n_win=4, alpha=1.25, n_pad=2, low_flag="y")
+    observed, observed_low = run_stage3_wrap_filt_kernel(
+        ph,
+        n_win=4,
+        alpha=1.25,
+        n_pad=2,
+        low_flag="y",
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-5, rtol=1e-5)
+    assert observed.dtype == np.complex64
+    assert observed_low is not None
+    assert expected_low is not None
+    np.testing.assert_allclose(observed_low, expected_low, atol=1e-5, rtol=1e-5)
+    assert observed_low.dtype == np.complex64
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage3_wrap_filt_global_native_matches_python_reference_without_low_output() -> None:
+    yy, xx = np.mgrid[0:8, 0:8]
+    ph = (np.exp(1j * (0.18 * xx + 0.09 * yy)) * (1.0 + 0.03 * yy)).astype(np.complex64)
+    ph[5, 1] = np.nan + 0j
+
+    expected, expected_low = _reference_wrap_filt_global(ph, n_win=4, alpha=1.1, n_pad=1, low_flag="n")
+    observed, observed_low = run_stage3_wrap_filt_global_kernel(
+        ph,
+        n_win=4,
+        alpha=1.1,
+        n_pad=1,
+        low_flag="n",
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-5, rtol=1e-5)
+    assert observed.dtype == np.complex64
+    assert expected_low is None
+    assert observed_low is None
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage4_duplicate_keep_native_matches_python_reference() -> None:
+    xy = np.asarray(
+        [
+            [10.0, 20.0],
+            [10.0, 20.0],
+            [15.0, 25.0],
+            [15.0, 25.0],
+            [50.0, 60.0],
+        ],
+        dtype=np.float64,
+    )
+    coh = np.asarray([0.3, 0.8, 0.7, 0.1, 0.2], dtype=np.float64)
+
+    expected = ported._dedup_lonlat_keep_highest_coh(xy, coh)
+    observed = run_stage4_duplicate_keep_kernel(xy, coh, backend="native")
+
+    np.testing.assert_array_equal(observed, expected)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage4_adjacent_component_keep_native_matches_python_reference() -> None:
+    ij = np.asarray(
+        [
+            [10, 10],
+            [10, 11],
+            [11, 10],
+            [30, 30],
+            [31, 30],
+            [60, 60],
+        ],
+        dtype=np.int64,
+    )
+    coh = np.asarray([0.5, 0.9, 0.7, 0.2, 0.4, 0.1], dtype=np.float64)
+
+    expected = ported._adjacent_component_keep_mask(ij, coh)
+    observed = run_stage4_adjacent_component_keep_kernel(ij, coh, backend="native")
+
+    np.testing.assert_array_equal(observed, expected)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage4_weed_ifg_index_native_matches_python_reference() -> None:
+    observed = run_stage4_weed_ifg_index_kernel(
+        n_ifg=6,
+        drop_ifg_index=np.asarray([2, 4], dtype=np.int64),
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(
+        observed,
+        np.asarray([1.0, 3.0, 5.0, 6.0], dtype=np.float64),
+    )
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-4 extension not available",
+)
+def test_stage4_phase_correction_native_matches_python_reference() -> None:
+    ph2 = np.asarray(
+        [
+            [0.7 + 0.2j, -0.3 + 0.9j, 0.1 - 0.8j, 0.4 + 0.5j],
+            [0.6 - 0.4j, -0.2 + 0.5j, -0.9 - 0.1j, 0.3 - 0.7j],
+            [0.1 + 0.0j, 0.0 + 0.0j, -0.5 + 0.2j, 0.8 - 0.6j],
+        ],
+        dtype=np.complex128,
+    )
+    ix_weed = np.asarray([True, False, True], dtype=bool)
+    k_ps = np.asarray([0.0012, -0.0034, 0.0045], dtype=np.float64)
+    c_ps = np.asarray([0.2, -0.4, 0.7], dtype=np.float64)
+    bperp = np.asarray([0.0, 12.5, -33.0, 44.0], dtype=np.float64)
+    master_ix = 2
+
+    expected = ph2[ix_weed, :] * np.exp(-1j * (k_ps[ix_weed][:, None] * bperp[None, :]))
+    expected = np.divide(expected, np.abs(expected), out=np.zeros_like(expected), where=np.abs(expected) != 0)
+    expected = np.divide(expected, np.abs(expected), out=np.zeros_like(expected), where=np.abs(expected) != 0)
+    expected[:, master_ix - 1] = np.exp(1j * c_ps[ix_weed])
+
+    observed = run_stage4_phase_correction_kernel(
+        ph2,
+        ix_weed,
+        k_ps,
+        c_ps,
+        bperp,
+        small_baseline=False,
+        master_ix=master_ix,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-12, rtol=0.0)
+    assert observed.dtype == np.complex128
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_unwrap_ifg_sets_native_matches_python_reference() -> None:
+    observed = run_stage6_unwrap_ifg_sets_kernel(
+        n_ifg=7,
+        master_ix=4,
+        drop_ifg_index=np.asarray([2, 6], dtype=np.int64),
+        small_baseline=False,
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(observed["unwrap_ifg"], np.asarray([1, 3, 4, 5, 7], dtype=np.int64))
+    np.testing.assert_array_equal(observed["solve_ifg"], np.asarray([1, 3, 5, 7], dtype=np.int64))
+
+    sb_observed = run_stage6_unwrap_ifg_sets_kernel(
+        n_ifg=5,
+        master_ix=3,
+        drop_ifg_index=np.asarray([4], dtype=np.int64),
+        small_baseline=True,
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(sb_observed["unwrap_ifg"], np.asarray([1, 2, 3, 5], dtype=np.int64))
+    np.testing.assert_array_equal(sb_observed["solve_ifg"], np.asarray([1, 2, 3, 5], dtype=np.int64))
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_single_master_ifg_geometry_native_matches_python_reference() -> None:
+    expected_unwrap, expected_ifgday = ported._build_single_master_ifg_geometry(n_ifg=6, master_ix=3)
+
+    observed = run_stage6_single_master_ifg_geometry_kernel(
+        n_ifg=6,
+        master_ix=3,
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(observed["unwrap_ifg"], expected_unwrap)
+    np.testing.assert_array_equal(observed["ifgday_ix"], expected_ifgday)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_grid_accumulate_native_matches_python_reference() -> None:
+    ph_in = np.asarray(
+        [
+            [1.0 + 2.0j, 0.5 - 0.5j],
+            [3.0 - 1.0j, -2.0 + 0.25j],
+            [-1.0 + 0.0j, 1.5 + 1.0j],
+            [0.25 + 0.75j, 0.0 - 1.0j],
+        ],
+        dtype=np.complex64,
+    )
+    grid_lin = np.asarray([2, 0, 2, 4], dtype=np.int64)
+    group_lin, grouped_cols = ported._group_reduce_by_index(ph_in, grid_lin)
+    expected = np.column_stack(
+        [
+            ported._accumulate_grid_column(group_lin, grouped_cols[:, i_ifg], 6)
+            for i_ifg in range(ph_in.shape[1])
+        ]
+    ).astype(np.complex64)
+
+    observed = run_stage6_grid_accumulate_kernel(ph_in, grid_lin, n_cells=6, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=0.0, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_estimate_la_error_native_matches_python_reference() -> None:
+    day = np.asarray([-24.0, -12.0, 18.0, 36.0], dtype=np.float64)
+    bperp = np.asarray([45.0, -15.0, 30.0, 75.0], dtype=np.float64)
+    k_true = np.asarray([0.015, -0.02, 0.0], dtype=np.float64)
+    phase = k_true[:, None] * bperp[None, :]
+    phase += np.asarray([[0.02, -0.01, 0.03, -0.02], [0.01, 0.02, -0.02, 0.01], [0.0, 0.0, 0.0, 0.0]])
+    dph_space = np.exp(1j * phase).astype(np.complex64)
+
+    expected = ported._estimate_la_error_single_master(dph_space, day=day, bperp=bperp, n_trial_wraps=2.0)
+    observed = accel.run_stage6_estimate_la_error_kernel(
+        dph_space,
+        day,
+        bperp,
+        2.0,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-6, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage6_smooth_native_matches_python_reference() -> None:
+    phase = np.asarray(
+        [
+            [0.2, -0.3, 0.5, -0.7],
+            [-0.4, 0.1, -0.2, 0.6],
+            [0.9, -0.8, 0.3, -0.1],
+        ],
+        dtype=np.float32,
+    )
+    dph_space = np.exp(1j * phase).astype(np.complex64)
+    day = np.asarray([-18.0, -6.0, 12.0, 30.0], dtype=np.float64)
+
+    expected = ported._smooth_3d_full_single_master(dph_space, day=day, time_win=24.0, chunk_edges=2)
+    observed = accel.run_stage6_smooth_3d_full_single_master_kernel(dph_space, day, 24.0, backend="native")
+
+    np.testing.assert_allclose(observed[0], expected[0], atol=2e-6, rtol=0.0)
+    np.testing.assert_allclose(observed[1], expected[1], atol=2e-6, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage5_native_ifg_std_matches_python_reference() -> None:
+    phase = np.asarray(
+        [
+            [0.2, -0.1, 0.4],
+            [-0.3, 0.5, -0.2],
+            [0.1, 0.3, -0.6],
+        ],
+        dtype=np.float32,
+    )
+    patch_phase = np.asarray(
+        [
+            [0.05, 0.0, -0.05],
+            [-0.02, 0.04, 0.01],
+            [0.0, -0.03, 0.02],
+        ],
+        dtype=np.float32,
+    )
+    bperp = np.asarray(
+        [
+            [10.0, 0.0, 20.0],
+            [15.0, 0.0, 25.0],
+            [12.0, 0.0, 22.0],
+        ],
+        dtype=np.float64,
+    )
+    k_ps = np.asarray([0.01, -0.02, 0.03], dtype=np.float64)
+    c_ps = np.asarray([0.1, -0.2, 0.05], dtype=np.float64)
+
+    ph2 = np.exp(1j * phase).astype(np.complex64)
+    ph_patch = np.exp(1j * patch_phase).astype(np.complex64)
+    expected = run_stage5_ifg_std_kernel(ph2, ph_patch, bperp, k_ps, c_ps, backend="python")
+    observed = run_stage5_ifg_std_kernel(ph2, ph_patch, bperp, k_ps, c_ps, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-5, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage5_duplicate_keep_native_matches_python_reference() -> None:
+    lonlat = np.asarray(
+        [
+            [13.0, 45.0],
+            [13.0, 45.0],
+            [13.5, 45.2],
+            [14.0, 46.0],
+            [13.5, 45.2],
+            [15.0, 47.0],
+        ],
+        dtype=np.float64,
+    )
+    coh = np.asarray([0.2, 0.8, 0.5, 0.1, 0.9, 0.3], dtype=np.float64)
+
+    expected = ported._dedup_lonlat_keep_highest_coh(lonlat, coh)
+    observed = run_stage5_duplicate_keep_kernel(lonlat, coh, backend="native")
+
+    np.testing.assert_array_equal(observed, expected)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage5_format_merged_rc2_native_matches_python_reference() -> None:
+    rc2_all = np.asarray(
+        [
+            [3.0 + 4.0j, 0.0 + 0.0j, -2.0j],
+            [1.0 - 1.0j, 2.0 + 0.0j, 0.0 + 0.0j],
+        ],
+        dtype=np.complex64,
+    )
+
+    expected = ported._format_merged_rc2_payload(rc2_all)
+    observed = run_stage5_format_merged_rc2_kernel(rc2_all, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage5_rc2_correction_native_matches_python_reference() -> None:
+    ph2 = np.asarray(
+        [
+            [0.7 + 0.2j, -0.3 + 0.9j, 0.1 - 0.8j, 0.4 + 0.5j],
+            [0.6 - 0.4j, -0.2 + 0.5j, -0.9 - 0.1j, 0.3 - 0.7j],
+        ],
+        dtype=np.complex64,
+    )
+    ph_patch = np.asarray(
+        [
+            [0.1 + 0.9j, 0.3 - 0.2j, -0.4 + 0.6j],
+            [0.7 - 0.1j, -0.8 + 0.3j, 0.2 + 0.5j],
+        ],
+        dtype=np.complex64,
+    )
+    bperp = np.asarray([[11.0, -22.0, 33.0], [44.0, -55.0, 66.0]], dtype=np.float64)
+    k_ps = np.asarray([0.0012, -0.0034], dtype=np.float64)
+    c_ps = np.asarray([0.2, -0.4], dtype=np.float64)
+    master_ix = 2
+
+    bperp_full = np.concatenate(
+        [
+            bperp[:, : master_ix - 1],
+            np.zeros((ph2.shape[0], 1), dtype=np.float64),
+            bperp[:, master_ix - 1 :],
+        ],
+        axis=1,
+    )
+    expected_rc = ph2.astype(np.complex128) * np.exp(-1j * (k_ps[:, None] * bperp_full + c_ps[:, None]))
+    expected_reref = np.concatenate(
+        [
+            ph_patch[:, : master_ix - 1],
+            np.ones((ph2.shape[0], 1), dtype=np.complex64),
+            ph_patch[:, master_ix - 1 :],
+        ],
+        axis=1,
+    )
+
+    observed = run_stage5_rc2_correction_kernel(
+        ph2,
+        ph_patch,
+        bperp,
+        k_ps,
+        c_ps,
+        small_baseline=False,
+        master_ix=master_ix,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed["ph_rc"], expected_rc.astype(np.complex64), atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(observed["ph_reref"], expected_reref.astype(np.complex64), atol=0.0, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage5_patch_keep_mask_native_matches_python_reference() -> None:
+    ij_cols = np.asarray(
+        [
+            [9, 9],
+            [2, 2],
+            [4, 2],
+            [8, 8],
+            [6, 3],
+        ],
+        dtype=np.int64,
+    )
+    merged_ij_cols = np.asarray([[9, 9], [4, 2], [8, 8]], dtype=np.int64)
+    merged_indices = np.asarray([10, 11, 12], dtype=np.int64)
+    patch_bounds = np.asarray([2, 4, 2, 6], dtype=np.int64)
+    merged_index_by_key = {
+        key: int(index)
+        for key, index in zip(ported._row_keys(merged_ij_cols), merged_indices, strict=True)
+    }
+    expected_keep, expected_remove = ported._compute_patch_keep_mask(
+        ij_cols=ij_cols,
+        ij_keys=ported._row_keys(ij_cols),
+        patch_bounds=tuple(int(v) for v in patch_bounds.tolist()),
+        merged_index_by_key=merged_index_by_key,
+    )
+
+    observed = run_stage5_patch_keep_mask_kernel(
+        ij_cols,
+        merged_ij_cols,
+        merged_indices,
+        patch_bounds,
+        backend="native",
+    )
+
+    np.testing.assert_array_equal(observed["keep_patch"], expected_keep)
+    np.testing.assert_array_equal(observed["remove_ix"], np.asarray(expected_remove, dtype=np.int64))
 
 
 @pytest.mark.skipif(
@@ -793,6 +2615,170 @@ def test_stage4_stage7_stage8_native_kernels_match_python_reference() -> None:
     importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
     reason="native stage-2 extension not available",
 )
+def test_stage7_scla_smooth_native_matches_python_reference() -> None:
+    k_ps_uw = np.asarray([10.0, 1.0, 2.0, -4.0, 3.0], dtype=np.float32)
+    c_ps_uw = np.asarray([5.0, 0.0, 2.0, 8.0, -1.0], dtype=np.float32)
+    edges = np.asarray([[0, 1], [1, 2], [0, 2], [2, 3], [3, 4], [99, 1], [1, 1]], dtype=np.int64)
+
+    expected = run_stage7_scla_smooth_kernel(k_ps_uw, c_ps_uw, edges, backend="python")
+    observed = run_stage7_scla_smooth_kernel(k_ps_uw, c_ps_uw, edges, backend="native")
+
+    np.testing.assert_allclose(observed[0], expected[0], atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(observed[1], expected[1], atol=0.0, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage7_center_to_reference_native_matches_python_reference() -> None:
+    ph = np.asarray(
+        [
+            [1.0, np.nan, 4.0],
+            [3.0, 6.0, np.nan],
+            [9.0, 8.0, 10.0],
+        ],
+        dtype=np.float64,
+    )
+    ref_ix = np.asarray([0, 1], dtype=np.int64)
+
+    expected = ported._center_to_reference(ph, ref_ix)
+    observed = run_stage7_center_to_reference_kernel(ph, ref_ix, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=0.0, rtol=0.0, equal_nan=True)
+    np.testing.assert_allclose(
+        run_stage7_center_to_reference_kernel(ph, np.asarray([], dtype=np.int64), backend="native"),
+        ph,
+        atol=0.0,
+        rtol=0.0,
+        equal_nan=True,
+    )
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage8_weighted_lstsq_native_matches_python_reference() -> None:
+    design = np.asarray(
+        [
+            [1.0, -2.0],
+            [1.0, 0.0],
+            [1.0, 3.0],
+            [1.0, 5.0],
+        ],
+        dtype=np.float64,
+    )
+    coeffs_true = np.asarray([[1.5, -2.0, 0.25], [0.5, 1.25, -0.75]], dtype=np.float64)
+    values = design @ coeffs_true
+    covariance = np.diag(np.asarray([1.0, 4.0, 9.0, 16.0], dtype=np.float64))
+
+    expected = run_stage8_weighted_lstsq_kernel(design, values, covariance=covariance, backend="python")
+    observed = run_stage8_weighted_lstsq_kernel(design, values, covariance=covariance, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-10, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage8_weighted_lstsq_native_matches_python_full_covariance() -> None:
+    design = np.asarray(
+        [
+            [1.0, -2.0],
+            [1.0, 0.0],
+            [1.0, 3.0],
+            [1.0, 5.0],
+        ],
+        dtype=np.float64,
+    )
+    coeffs_true = np.asarray([[1.5, -2.0, 0.25], [0.5, 1.25, -0.75]], dtype=np.float64)
+    values = design @ coeffs_true
+    chol = np.asarray(
+        [
+            [2.0, 0.0, 0.0, 0.0],
+            [0.3, 1.5, 0.0, 0.0],
+            [0.2, -0.1, 1.2, 0.0],
+            [0.1, 0.2, -0.3, 1.8],
+        ],
+        dtype=np.float64,
+    )
+    covariance = chol @ chol.T
+
+    expected = run_stage8_weighted_lstsq_kernel(design, values, covariance=covariance, backend="python")
+    observed = run_stage8_weighted_lstsq_kernel(design, values, covariance=covariance, backend="native")
+
+    np.testing.assert_allclose(observed, expected, atol=1e-10, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage7_mean_velocity_fit_native_matches_python_reference() -> None:
+    ph_mean_v = np.asarray(
+        [
+            [3.0, 0.0, -1.0, 1.0],
+            [-2.0, 0.0, 4.0, 7.0],
+            [0.5, -0.5, 2.0, 3.5],
+        ],
+        dtype=np.float64,
+    )
+    day = np.asarray([8.0, 10.0, 13.0, 17.0], dtype=np.float64)
+    ifg_std = np.asarray([1.0, 2.0, 4.0, 8.0], dtype=np.float64)
+
+    expected = ported._stage7_mean_velocity_fit(ph_mean_v, day, master_ix=2, ifg_std=ifg_std)
+    observed = accel.run_stage7_mean_velocity_fit_kernel(
+        ph_mean_v,
+        day,
+        master_ix=2,
+        ifg_std=ifg_std,
+        backend="native",
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-6, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
+def test_stage7_deramp_native_matches_python_reference_with_nans() -> None:
+    xy = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [2.0, 1000.0, 0.0],
+            [3.0, 0.0, 1000.0],
+            [4.0, 1000.0, 1000.0],
+            [5.0, 2000.0, 0.0],
+            [6.0, 0.0, 2000.0],
+            [7.0, 2000.0, 2000.0],
+        ],
+        dtype=np.float64,
+    )
+    x_km = xy[:, 1] / 1000.0
+    y_km = xy[:, 2] / 1000.0
+    ph = np.column_stack(
+        (
+            1.5 * x_km + 0.75 * y_km + 2.0,
+            -0.5 * x_km + 1.25 * y_km - 1.0,
+        )
+    )
+    ph[0, 1] = np.nan
+
+    ps = {"n_ps": np.asarray(float(xy.shape[0])), "xy": xy}
+    expected = ported._deramp_unwrapped_phase(ps, ph)
+    observed = accel.run_stage7_deramp_unwrapped_phase_kernel(xy, ph, backend="native")
+
+    np.testing.assert_allclose(observed[0], expected[0], atol=1e-10, rtol=0.0)
+    np.testing.assert_allclose(observed[1], expected[1], atol=1e-10, rtol=0.0)
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("pystamps.kernels._stage2_native") is None,
+    reason="native stage-2 extension not available",
+)
 def test_stage2_native_generic_matches_python_single_precision() -> None:
     rng = np.random.default_rng(21)
     cpxphase = np.exp(1j * rng.normal(size=(5, 7))).astype(np.complex64)
@@ -801,9 +2787,10 @@ def test_stage2_native_generic_matches_python_single_precision() -> None:
     expected = ported._ps_topofit_batch_generic(cpxphase, bperp, n_trial_wraps=1.5)
     observed = run_stage2_topofit_kernel(cpxphase, bperp, 1.5, backend="native")
 
-    np.testing.assert_allclose(observed[0], expected[0], atol=1e-7, rtol=0.0)
-    np.testing.assert_allclose(observed[1], expected[1], atol=1e-7, rtol=0.0)
-    np.testing.assert_allclose(observed[2], expected[2], atol=1e-7, rtol=0.0)
+    f32_tol = 8 * float(np.finfo(np.float32).eps)
+    np.testing.assert_allclose(observed[0], expected[0], atol=f32_tol, rtol=0.0)
+    np.testing.assert_allclose(observed[1], expected[1], atol=f32_tol, rtol=0.0)
+    np.testing.assert_allclose(observed[2], expected[2], atol=f32_tol, rtol=0.0)
     np.testing.assert_allclose(observed[3], expected[3], atol=1e-6, rtol=0.0)
 
 

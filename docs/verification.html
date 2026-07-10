@@ -45,8 +45,19 @@
     <section class="card">
       <h2>Parity audit workflow</h2>
       <p>Parity audits prepare and track fresh run copies, then report the copy path for explicit verification.</p>
+      <p>The public single-master test dataset at <a href="https://huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test/tree/main">huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test</a> can be mirrored before running local validation:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">make fetch-insar-dataset</code></pre>
+      <p>If the validation machine has no network access, download the repository archive elsewhere and import it locally:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">make import-insar-dataset HF_DATASET_ARCHIVE=/path/to/InSAR_dataset_test.zip</code></pre>
+      <p>After that dataset is local, run its native Rust/conda audit with:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">make native-conda-audit-hf</code></pre>
+      <p>If <span class="code-inline">conda</span> is not on the noninteractive shell <span class="code-inline">PATH</span>, pass the executable explicitly, for example <span class="code-inline">CONDA=/opt/miniconda3/bin/conda</span>.</p>
       <p><span class="code-inline">make audit</span> is the repo-local convenience wrapper. The authoritative driver is <span class="code-inline">scripts/validate_audit.py</span>, and omitting <span class="code-inline">--datasets</span> makes it use the manifest-backed required dataset set from <span class="code-inline">pystamps/data/audited_workflow_manifest.json</span>.</p>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">make audit</code></pre>
+      <p>For a native Rust validation run inside the repository conda environment, use the checked-in kernel profile:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">make native-conda-check
+make native-conda-audit
+make native-conda-verify</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
   uv run python scripts/validate_audit.py \
     --output /path/to/latest_audit.json</code></pre>

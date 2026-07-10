@@ -143,6 +143,47 @@ def test_compute_active_single_master_normalizes_arc_phasors(monkeypatch) -> Non
     assert np.allclose(captured["smooth_abs"], 1.0)
 
 
+def test_compute_active_single_master_routes_la_error_backend(monkeypatch) -> None:
+    captured = {}
+
+    def fake_estimate(dph_space, day, bperp, n_trial_wraps, *, backend, **kwargs):
+        captured["backend"] = backend
+        captured["shape"] = dph_space.shape
+        captured["day"] = np.asarray(day)
+        captured["bperp"] = np.asarray(bperp)
+        captured["n_trial_wraps"] = float(n_trial_wraps)
+        return np.asarray([0.01], dtype=np.float32)
+
+    def fake_smooth(dph_space, **kwargs):
+        captured["smooth"] = np.asarray(dph_space)
+        return np.zeros((1, 2), dtype=np.float32), np.zeros((1, 2), dtype=np.float32)
+
+    monkeypatch.setattr(ported, "run_stage6_estimate_la_error_kernel", fake_estimate)
+    monkeypatch.setattr(ported, "_smooth_3d_full_single_master", fake_smooth)
+
+    uw_ph = np.asarray([[1 + 0j, 1 + 0j], [1j, -1j]], dtype=np.complex64)
+    edgs = np.asarray([[1.0, 1.0, 2.0]], dtype=np.float64)
+
+    _compute_active_single_master_uw_space_time(
+        uw_ph,
+        edgs,
+        day=np.asarray([0.0, 10.0, 20.0], dtype=np.float64),
+        master_ix=1,
+        bperp=np.asarray([100.0, 200.0], dtype=np.float64),
+        unwrap_ifg=np.asarray([2, 3], dtype=np.int64),
+        time_win=36.0,
+        n_trial_wraps=1.25,
+        backend="native",
+    )
+
+    assert captured["backend"] == "native"
+    assert captured["shape"] == (1, 2)
+    np.testing.assert_array_equal(captured["day"], np.asarray([10.0, 20.0], dtype=np.float64))
+    np.testing.assert_array_equal(captured["bperp"], np.asarray([100.0, 200.0], dtype=np.float64))
+    assert captured["n_trial_wraps"] == 1.25
+    assert np.allclose(np.abs(captured["smooth"]), 1.0)
+
+
 def test_compute_active_single_master_chunked_matches_default() -> None:
     phase = np.asarray(
         [

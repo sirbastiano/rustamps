@@ -55,23 +55,64 @@ uv run pystamps run --dataset /path/to/run_dataset --start-step 6 --end-step 8</
       <p>Inspect available providers, then pin the optimized native kernels with a config file.</p>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps describe-backends</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-yaml">runtime:
-  backend: auto
+  backend: native
   stage2_kernel_backend: native
   stage2_native_threads: 0
   kernel_backend_overrides:
+    stage2_clap_filter_kernel: native
     stage2_grid_accumulate: native
+    stage2_grid_indices: native
     stage2_histogram: native
+    stage2_normalize_complex: native
+    stage2_normalize_phase_matrix: native
+    stage2_ph_weight_block: native
     stage2_topofit: native
-    stage2_topofit_row_invariant: native
     stage2_topofit_coh_row_invariant: native
+    stage2_topofit_row_invariant: native
+    stage3_clap_filt_grid: native
+    stage3_clap_filt_grid_stack: native
+    stage3_clap_filt_patch: native
+    stage3_clap_filt_patch_stack: native
+    stage3_coh_threshold: native
+    stage3_select_ifg_index: native
+    stage3_wrap_filt: native
+    stage3_wrap_filt_global: native
+    stage4_adjacent_component_keep: native
+    stage4_duplicate_keep: native
     stage4_edge_stats: native
+    stage4_phase_correction: native
+    stage4_weed_ifg_index: native
+    stage5_duplicate_keep: native
+    stage5_format_merged_rc2: native
+    stage5_ifg_std: native
+    stage5_patch_keep_mask: native
+    stage5_rc2_correction: native
+    stage6_estimate_la_error: native
+    stage6_extract_grid_values: native
+    stage6_grid_accumulate: native
+    stage6_prepare_cost_offsets: native
+    stage6_ps_grid_indices: native
+    stage6_reconstruct_ps_phase: native
+    stage6_select_ifgw: native
+    stage6_single_master_ifg_geometry: native
+    stage6_smooth_3d_full_single_master: native
+    stage6_unwrap_grid: native
+    stage6_unwrap_ifg_sets: native
+    stage7_center_to_reference: native
+    stage7_deramp_unwrapped_phase: native
+    stage7_mean_velocity_fit: native
     stage7_scla: native
+    stage7_scla_smooth: native
     stage8_edge_noise: native
-  io_workers: 8
+    stage8_weighted_lstsq: native
+    weighted_affine_fit: native
+    weighted_slope_fit: native
+  io_workers: 1
   cpu_workers: 0
   stage7_chunk_ps: 100000
   stage8_chunk_edges: 200000</code></pre>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config native-kernels.yaml run --dataset /path/to/run_dataset --start-step 2 --end-step 8</code></pre>
+      <p><span class="code-inline">backend: native</span> selects compiled Rust/CPU kernels and schedules them in-process. The validation profile uses one patch worker to avoid concurrent large MAT-file reads.</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config configs/native-kernels.yaml run --dataset /path/to/run_dataset --start-step 2 --end-step 8</code></pre>
       <div class="callout info">Use <span class="code-inline">python</span> for reference kernels and <span class="code-inline">native</span> for the compiled Rust/CPU kernels. Use <span class="code-inline">cuda</span> only when that kernel and CuPy are available.</div>
       <p>If the copied dataset already contains the expected outputs, those stages report <span class="code-inline">skipped_existing</span>. To execute kernels through the pipeline, use a dataset copy that still needs those stage outputs. Use the benchmark or direct-kernel examples for profiling.</p>
     </section>

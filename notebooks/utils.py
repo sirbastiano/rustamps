@@ -114,6 +114,11 @@ def configure_stamps_environment() -> None:
 
 def content_start(row: pd.Series) -> pd.Timestamp:
     raw = row.get("ContentDate")
+    if isinstance(raw, str) and raw.strip().startswith("{"):
+        try:
+            raw = ast.literal_eval(raw)
+        except (SyntaxError, ValueError):
+            pass
     if isinstance(raw, dict):
         raw = raw.get("Start")
     if raw is None:

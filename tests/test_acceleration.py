@@ -94,7 +94,7 @@ def test_task_kind_gpu_mode() -> None:
 def test_task_kind_native_mode() -> None:
     context = _ctx("native")
     for stage in STAGE_DEFS:
-        assert _task_kind_for_stage(stage, context, patch_count=4) == "cpu"
+        assert _task_kind_for_stage(stage, context, patch_count=4) == "io"
 
 
 def test_task_kind_strict_reference_forces_io() -> None:

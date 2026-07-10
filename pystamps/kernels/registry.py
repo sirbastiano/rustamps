@@ -161,12 +161,7 @@ class KernelRegistry:
 
     def coverage_manifest(self) -> dict[str, Any]:
         providers = {
-            backend_id: {
-                "description": provider.description,
-                "aliases": list(provider.aliases),
-                "available": provider.available(),
-                "unavailable_reason": provider.unavailable_reason,
-            }
+            backend_id: self._provider_manifest(provider)
             for backend_id, provider in sorted(self._providers.items())
         }
         kernels = {
@@ -178,6 +173,16 @@ class KernelRegistry:
             for kernel_name, impl in sorted(self._impls.items())
         }
         return {"providers": providers, "kernels": kernels}
+
+    @staticmethod
+    def _provider_manifest(provider: BackendProvider) -> dict[str, Any]:
+        available = provider.available()
+        return {
+            "description": provider.description,
+            "aliases": list(provider.aliases),
+            "available": available,
+            "unavailable_reason": "" if available else provider.unavailable_reason,
+        }
 
 
 DEFAULT_REGISTRY = KernelRegistry()

@@ -105,6 +105,14 @@ uv run pystamps describe-backends</code></pre>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">python -m pip install -e .
 python -m pip install -e ".[dev]"
 cargo --version</code></pre>
+      <p>Conda users can install Python plus Rust/Cargo from the repository environment file:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">conda env create -f environment.yml
+conda activate pystamps-rust
+python -m pip install -e ".[dev]"
+cargo check
+pystamps describe-backends</code></pre>
+      <p>Update that environment later with:</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">conda env update -f environment.yml --prune</code></pre>
       <p>Run on a copy:</p>
       <pre><button class="copy-btn">Copy</button><code class="language-bash">cp -a /path/to/source_dataset /path/to/run_dataset
 uv run pystamps status --dataset /path/to/run_dataset
@@ -155,26 +163,67 @@ uv run pystamps describe-backends</code></pre>
       <h2>Switch kernel modality</h2>
       <p>The CLI command stays the same. Switch between reference Python, optimized native Rust/CPU, and optional CUDA providers through config.</p>
       <pre><button class="copy-btn">Copy</button><code class="language-yaml">runtime:
-  backend: auto
+  backend: native
   stage2_kernel_backend: native
   stage2_native_threads: 0
   kernel_backend_overrides:
+    stage2_clap_filter_kernel: native
     stage2_grid_accumulate: native
+    stage2_grid_indices: native
     stage2_histogram: native
+    stage2_normalize_complex: native
+    stage2_normalize_phase_matrix: native
+    stage2_ph_weight_block: native
     stage2_topofit: native
-    stage2_topofit_row_invariant: native
     stage2_topofit_coh_row_invariant: native
+    stage2_topofit_row_invariant: native
+    stage3_clap_filt_grid: native
+    stage3_clap_filt_grid_stack: native
+    stage3_clap_filt_patch: native
+    stage3_clap_filt_patch_stack: native
+    stage3_coh_threshold: native
+    stage3_select_ifg_index: native
+    stage3_wrap_filt: native
+    stage3_wrap_filt_global: native
+    stage4_adjacent_component_keep: native
+    stage4_duplicate_keep: native
     stage4_edge_stats: native
+    stage4_phase_correction: native
+    stage4_weed_ifg_index: native
+    stage5_duplicate_keep: native
+    stage5_format_merged_rc2: native
+    stage5_ifg_std: native
+    stage5_patch_keep_mask: native
+    stage5_rc2_correction: native
+    stage6_estimate_la_error: native
+    stage6_extract_grid_values: native
+    stage6_grid_accumulate: native
+    stage6_prepare_cost_offsets: native
+    stage6_ps_grid_indices: native
+    stage6_reconstruct_ps_phase: native
+    stage6_select_ifgw: native
+    stage6_single_master_ifg_geometry: native
+    stage6_smooth_3d_full_single_master: native
+    stage6_unwrap_grid: native
+    stage6_unwrap_ifg_sets: native
+    stage7_center_to_reference: native
+    stage7_deramp_unwrapped_phase: native
+    stage7_mean_velocity_fit: native
     stage7_scla: native
+    stage7_scla_smooth: native
     stage8_edge_noise: native
-  io_workers: 8
+    stage8_weighted_lstsq: native
+    weighted_affine_fit: native
+    weighted_slope_fit: native
+  io_workers: 1
   cpu_workers: 0
   stage7_chunk_ps: 100000
   stage8_chunk_edges: 200000</code></pre>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config native-kernels.yaml run \
+      <p><span class="code-inline">backend: native</span> selects compiled Rust/CPU kernels and schedules them in-process. The validation profile uses one patch worker to avoid concurrent large MAT-file reads.</p>
+      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config configs/native-kernels.yaml run \
   --dataset /path/to/run_dataset \
   --start-step 2 --end-step 8</code></pre>
-      <p>Current optimized kernel names are <span class="code-inline">stage2_grid_accumulate</span>, <span class="code-inline">stage2_histogram</span>, <span class="code-inline">stage2_topofit</span>, <span class="code-inline">stage2_topofit_row_invariant</span>, <span class="code-inline">stage2_topofit_coh_row_invariant</span>, <span class="code-inline">stage4_edge_stats</span>, <span class="code-inline">stage7_scla</span>, and <span class="code-inline">stage8_edge_noise</span>.</p>
+      <p>Inside the activated <span class="code-inline">pystamps-rust</span> conda environment, run <span class="code-inline">pystamps</span> directly instead of prefixing the command with <span class="code-inline">uv run</span>. Use <span class="code-inline">describe-backends</span> to inspect the live optimized kernel inventory.</p>
     </section>
 
     <section class="card">
@@ -221,7 +270,7 @@ uv run python scripts/benchmark_backends.py \
       <ul>
         <li><strong>Stage skipped:</strong> <span class="code-inline">skipped_existing</span> means expected artifacts already exist. Use a fresh copy that still needs the stage to force execution.</li>
         <li><strong>Native unavailable:</strong> run <span class="code-inline">uv run pystamps describe-backends</span>, install Rust, and rebuild the editable environment.</li>
-        <li><strong>Unwrapping fails:</strong> check <span class="code-inline">triangle</span> and <span class="code-inline">snaphu</span> availability or configure their paths under <span class="code-inline">tools</span>.</li>
+        <li><strong>Unwrapping fails:</strong> check <span class="code-inline">triangle</span> and, for legacy/fallback unwrap runs, <span class="code-inline">snaphu</span> availability or configure their paths under <span class="code-inline">tools</span>.</li>
         <li><strong>Verification fails:</strong> ensure <span class="code-inline">--run</span> and <span class="code-inline">--golden</span> refer to comparable dataset states.</li>
         <li><strong>Audit is slow:</strong> full audit processes every dataset in the maintained manifest; use targeted tests during development and audit for release evidence.</li>
       </ul>

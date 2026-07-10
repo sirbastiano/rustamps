@@ -9,6 +9,66 @@ use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 use std::f64::consts::PI;
 
+mod stage3_clap_stack;
+mod stage3_native;
+mod stage4_edge_stats_native;
+mod stage4_native;
+mod stage5_native;
+mod stage6_component_shift;
+#[cfg(test)]
+mod stage6_component_shift_tests;
+mod stage6_cut;
+mod stage6_cut_graph;
+mod stage6_flow;
+#[allow(dead_code)]
+mod stage6_incr_cost;
+mod stage6_la_native;
+mod stage6_label_flow;
+#[cfg(test)]
+mod stage6_label_flow_tests;
+mod stage6_local_cycles;
+#[allow(dead_code)]
+mod stage6_mst;
+#[allow(dead_code)]
+mod stage6_mst_flow;
+#[cfg(test)]
+mod stage6_mst_flow_tests;
+mod stage6_native;
+#[cfg(test)]
+mod stage6_native_flow_tests;
+mod stage6_patch;
+#[allow(dead_code)]
+mod stage6_residual;
+#[cfg(test)]
+mod stage6_residual_tests;
+#[allow(dead_code)]
+mod stage6_residual_view;
+#[cfg(test)]
+mod stage6_residual_view_tests;
+#[allow(dead_code)]
+mod stage6_residue;
+mod stage6_route;
+mod stage6_smooth_native;
+#[allow(dead_code)]
+mod stage6_tree_compact;
+#[cfg(test)]
+mod stage6_tree_compact_tests;
+#[allow(dead_code)]
+mod stage6_tree_cycle;
+#[cfg(test)]
+mod stage6_tree_cycle_tests;
+#[allow(dead_code)]
+mod stage6_tree_path;
+#[cfg(test)]
+mod stage6_tree_path_tests;
+#[cfg(test)]
+mod stage6_tree_search_tests;
+mod stage7_deramp_native;
+mod stage7_native;
+mod stage7_scla_native;
+mod stage8_native;
+mod weighted_fit_native;
+
 const QUARTER_PI: f64 = PI / 4.0;
 const QUARTER_PI_F32: f32 = std::f32::consts::PI / 4.0;
 const STAGE8_NOISE_SCALE: f32 = 0.5;
@@ -83,11 +143,15 @@ fn parse_indices(values: &[i64], upper_bound: usize, label: &str) -> PyResult<Ve
     let mut out = Vec::with_capacity(values.len());
     for &value in values {
         if value < 0 {
-            return Err(PyValueError::new_err(format!("{label} entries must be non-negative")));
+            return Err(PyValueError::new_err(format!(
+                "{label} entries must be non-negative"
+            )));
         }
         let idx = value as usize;
         if idx >= upper_bound {
-            return Err(PyValueError::new_err(format!("{label} entry {idx} exceeds width {upper_bound}")));
+            return Err(PyValueError::new_err(format!(
+                "{label} entry {idx} exceeds width {upper_bound}"
+            )));
         }
         out.push(idx);
     }
@@ -167,7 +231,11 @@ fn invert_small_matrix_with_jitter(matrix: &[f64], n: usize) -> Vec<f64> {
         if let Some(inverse) = invert_small_matrix(&adjusted, n) {
             return inverse;
         }
-        jitter = if jitter == 0.0 { 1.0e-10 } else { jitter * 10.0 };
+        jitter = if jitter == 0.0 {
+            1.0e-10
+        } else {
+            jitter * 10.0
+        };
         if jitter > 1.0e-3 {
             let mut identity = vec![0.0; n * n];
             for diag in 0..n {
@@ -229,16 +297,24 @@ fn stage7_outputs(
     threads: usize,
 ) -> PyResult<Stage7Outputs> {
     if unwrap_ix.len() < 2 {
-        return Err(PyValueError::new_err("stage7_scla requires at least two unwrap indices"));
+        return Err(PyValueError::new_err(
+            "stage7_scla requires at least two unwrap indices",
+        ));
     }
     if solve_ix.len() < 2 {
-        return Err(PyValueError::new_err("stage7_scla requires at least two solve indices"));
+        return Err(PyValueError::new_err(
+            "stage7_scla requires at least two solve indices",
+        ));
     }
     if master_ix == 0 || master_ix > n_ifg {
-        return Err(PyValueError::new_err("master_ix must be 1-based within the interferogram width"));
+        return Err(PyValueError::new_err(
+            "master_ix must be 1-based within the interferogram width",
+        ));
     }
     if day.len() != n_ifg || ifg_std.len() != n_ifg {
-        return Err(PyValueError::new_err("day and ifg_std must match the interferogram width"));
+        return Err(PyValueError::new_err(
+            "day and ifg_std must match the interferogram width",
+        ));
     }
 
     let unwrap_obs = unwrap_ix.len() - 1;
@@ -265,7 +341,10 @@ fn stage7_outputs(
             design_seq[row_offset + 2] = day_diff;
         }
     }
-    let inv_seq = invert_small_matrix_with_jitter(&design_gram(&design_seq, unwrap_obs, seq_coeff), seq_coeff);
+    let inv_seq = invert_small_matrix_with_jitter(
+        &design_gram(&design_seq, unwrap_obs, seq_coeff),
+        seq_coeff,
+    );
 
     let master_zero = day[master_ix - 1];
     let mut solve_design = Vec::new();
@@ -304,7 +383,11 @@ fn stage7_outputs(
         })
         .collect();
     let s0: f64 = weights_mv.iter().sum();
-    let s1: f64 = weights_mv.iter().zip(time_diff.iter()).map(|(&w, &t)| w * t).sum();
+    let s1: f64 = weights_mv
+        .iter()
+        .zip(time_diff.iter())
+        .map(|(&w, &t)| w * t)
+        .sum();
     let s2: f64 = weights_mv
         .iter()
         .zip(time_diff.iter())
@@ -312,7 +395,10 @@ fn stage7_outputs(
         .sum();
     let det = s0 * s2 - s1 * s1;
 
-    let ifg_var: Vec<f64> = ifg_std.iter().map(|&std| (std * PI / 180.0) * (std * PI / 180.0)).collect();
+    let ifg_var: Vec<f64> = ifg_std
+        .iter()
+        .map(|&std| (std * PI / 180.0) * (std * PI / 180.0))
+        .collect();
     let mut ifg_vcm = vec![0.0; n_ifg * n_ifg];
     for diag_ix in 0..n_ifg {
         ifg_vcm[diag_ix * n_ifg + diag_ix] = ifg_var[diag_ix];
@@ -327,10 +413,14 @@ fn stage7_outputs(
                     let row_offset = row_ix * n_ifg;
                     let mut ph_seq = vec![0.0; unwrap_obs];
                     for obs_ix in 0..unwrap_obs {
-                        ph_seq[obs_ix] =
-                            ph_proc[row_offset + unwrap_ix[obs_ix + 1]] - ph_proc[row_offset + unwrap_ix[obs_ix]];
+                        ph_seq[obs_ix] = ph_proc[row_offset + unwrap_ix[obs_ix + 1]]
+                            - ph_proc[row_offset + unwrap_ix[obs_ix]];
                     }
-                    let coeff_seq = mat_vec(&inv_seq, &design_rhs(&design_seq, &ph_seq, unwrap_obs, seq_coeff), seq_coeff);
+                    let coeff_seq = mat_vec(
+                        &inv_seq,
+                        &design_rhs(&design_seq, &ph_seq, unwrap_obs, seq_coeff),
+                        seq_coeff,
+                    );
                     let k = coeff_seq[1];
 
                     let mut ph_scla_row = vec![0.0_f32; n_ifg];
@@ -344,7 +434,11 @@ fn stage7_outputs(
                             let resid = ph_proc[row_offset + ifg_ix] - ph_scla_row[ifg_ix] as f64;
                             resid_weighted[obs_ix] = resid / solve_scales[obs_ix];
                         }
-                        mat_vec(inv_c_ref, &design_rhs(&solve_design, &resid_weighted, solve_ix.len(), 2), 2)[0] as f32
+                        mat_vec(
+                            inv_c_ref,
+                            &design_rhs(&solve_design, &resid_weighted, solve_ix.len(), 2),
+                            2,
+                        )[0] as f32
                     } else {
                         let mut accum = 0.0;
                         for &ifg_ix in solve_ix {
@@ -389,10 +483,14 @@ fn stage7_outputs(
                     let row_offset = row_ix * n_ifg;
                     let mut ph_seq = vec![0.0; unwrap_obs];
                     for obs_ix in 0..unwrap_obs {
-                        ph_seq[obs_ix] =
-                            ph_proc[row_offset + unwrap_ix[obs_ix + 1]] - ph_proc[row_offset + unwrap_ix[obs_ix]];
+                        ph_seq[obs_ix] = ph_proc[row_offset + unwrap_ix[obs_ix + 1]]
+                            - ph_proc[row_offset + unwrap_ix[obs_ix]];
                     }
-                    let coeff_seq = mat_vec(&inv_seq, &design_rhs(&design_seq, &ph_seq, unwrap_obs, seq_coeff), seq_coeff);
+                    let coeff_seq = mat_vec(
+                        &inv_seq,
+                        &design_rhs(&design_seq, &ph_seq, unwrap_obs, seq_coeff),
+                        seq_coeff,
+                    );
                     let k = coeff_seq[1];
 
                     let mut ph_scla_row = vec![0.0_f32; n_ifg];
@@ -406,7 +504,11 @@ fn stage7_outputs(
                             let resid = ph_proc[row_offset + ifg_ix] - ph_scla_row[ifg_ix] as f64;
                             resid_weighted[obs_ix] = resid / solve_scales[obs_ix];
                         }
-                        mat_vec(inv_c_ref, &design_rhs(&solve_design, &resid_weighted, solve_ix.len(), 2), 2)[0] as f32
+                        mat_vec(
+                            inv_c_ref,
+                            &design_rhs(&solve_design, &resid_weighted, solve_ix.len(), 2),
+                            2,
+                        )[0] as f32
                     } else {
                         let mut accum = 0.0;
                         for &ifg_ix in solve_ix {
@@ -480,7 +582,7 @@ fn argmax_first(values: &[f64]) -> usize {
     best_ix
 }
 
-const STAGE2_TOPOFIT_NEAR_MAX_COH_TOL: f64 = 5.0e-3;
+const STAGE2_TOPOFIT_NEAR_MAX_COH_TOL: f64 = 2.0e-4;
 
 fn near_max_trial_indices(coh_trial: &[f64]) -> Vec<usize> {
     if coh_trial.len() <= 1 {
@@ -489,10 +591,12 @@ fn near_max_trial_indices(coh_trial: &[f64]) -> Vec<usize> {
 
     let mut local_max = vec![false; coh_trial.len()];
     local_max[0] = coh_trial[0] >= coh_trial[1];
-    local_max[coh_trial.len() - 1] = coh_trial[coh_trial.len() - 1] >= coh_trial[coh_trial.len() - 2];
+    local_max[coh_trial.len() - 1] =
+        coh_trial[coh_trial.len() - 1] >= coh_trial[coh_trial.len() - 2];
     if coh_trial.len() > 2 {
         for idx in 1..coh_trial.len() - 1 {
-            local_max[idx] = coh_trial[idx] >= coh_trial[idx - 1] && coh_trial[idx] >= coh_trial[idx + 1];
+            local_max[idx] =
+                coh_trial[idx] >= coh_trial[idx - 1] && coh_trial[idx] >= coh_trial[idx + 1];
         }
     }
 
@@ -514,24 +618,18 @@ fn near_max_trial_indices(coh_trial: &[f64]) -> Vec<usize> {
     candidate_ix
 }
 
-fn select_candidate(candidate_ix: &[usize], candidate_coh: &[f64], refined_coh: &[f64], trial_count: usize) -> usize {
+fn select_candidate(
+    candidate_ix: &[usize],
+    candidate_coh: &[f64],
+    _refined_coh: &[f64],
+    _trial_count: usize,
+) -> usize {
     if candidate_ix.is_empty() {
         return 0;
     }
 
     let coarse_best_local = argmax_first(candidate_coh);
-    let coarse_best_trial_ix = candidate_ix[coarse_best_local];
-    if candidate_ix.len() == 1 {
-        return coarse_best_trial_ix;
-    }
-
-    let endpoint_symmetric =
-        candidate_ix.len() == 2 && candidate_ix[0] == 0 && candidate_ix[candidate_ix.len() - 1] == trial_count - 1;
-    if endpoint_symmetric {
-        return coarse_best_trial_ix;
-    }
-
-    candidate_ix[argmax_first(refined_coh)]
+    candidate_ix[coarse_best_local]
 }
 
 fn collect_row(cpx_row: &[Complex64], bp_row: &[f64]) -> RowData {
@@ -579,7 +677,11 @@ fn collect_row(cpx_row: &[Complex64], bp_row: &[f64]) -> RowData {
         den_lin = 1.0;
     }
 
-    let mut bperp_range = if valid_cols.is_empty() { 1.0 } else { bperp_max - bperp_min };
+    let mut bperp_range = if valid_cols.is_empty() {
+        1.0
+    } else {
+        bperp_max - bperp_min
+    };
     if bperp_range == 0.0 {
         bperp_range = 1.0;
     }
@@ -642,7 +744,11 @@ fn collect_row_single(cpx_row: &[Complex32], bp_row: &[f32]) -> RowDataSingle {
         den_lin = 1.0;
     }
 
-    let mut bperp_range = if valid_cols.is_empty() { 1.0 } else { bperp_max - bperp_min };
+    let mut bperp_range = if valid_cols.is_empty() {
+        1.0
+    } else {
+        bperp_max - bperp_min
+    };
     if bperp_range == 0.0 {
         bperp_range = 1.0;
     }
@@ -692,7 +798,11 @@ fn coherence_trials_generic_single(row: &RowDataSingle, trial_mult: &[f32]) -> V
     coh_trial
 }
 
-fn coherence_trials_row_invariant(row: &RowData, basis: &[Complex64], trial_count: usize) -> Vec<f64> {
+fn coherence_trials_row_invariant(
+    row: &RowData,
+    basis: &[Complex64],
+    trial_count: usize,
+) -> Vec<f64> {
     let mut coh_trial = vec![0.0; trial_count];
     for trial_ix in 0..trial_count {
         let basis_row = &basis[trial_ix * row.n_col..(trial_ix + 1) * row.n_col];
@@ -805,7 +915,12 @@ fn refine_candidate_single(row: &RowDataSingle, coarse_k0: f32, store_phase: boo
     }
 }
 
-fn solve_row_generic(cpx_row: &[Complex64], bp_row: &[f64], trial_mult: &[f64], store_phase: bool) -> RefinedRow {
+fn solve_row_generic(
+    cpx_row: &[Complex64],
+    bp_row: &[f64],
+    trial_mult: &[f64],
+    store_phase: bool,
+) -> RefinedRow {
     let row = collect_row(cpx_row, bp_row);
     if row.cpx.is_empty() {
         return RefinedRow {
@@ -820,7 +935,12 @@ fn solve_row_generic(cpx_row: &[Complex64], bp_row: &[f64], trial_mult: &[f64], 
     solve_row_from_trials(&row, trial_mult, &coh_trial, store_phase)
 }
 
-fn solve_row_generic_single(cpx_row: &[Complex32], bp_row: &[f32], trial_mult: &[f32], store_phase: bool) -> RefinedRow {
+fn solve_row_generic_single(
+    cpx_row: &[Complex32],
+    bp_row: &[f32],
+    trial_mult: &[f32],
+    store_phase: bool,
+) -> RefinedRow {
     let row = collect_row_single(cpx_row, bp_row);
     if row.cpx.is_empty() {
         return RefinedRow {
@@ -847,7 +967,12 @@ fn solve_row_generic_single(cpx_row: &[Complex32], bp_row: &[f32], trial_mult: &
         candidate_coh.push(coh_trial_f64[trial_ix]);
     }
     let refined_coh = refined.iter().map(|row| row.coh).collect::<Vec<_>>();
-    let selected_trial_ix = select_candidate(&candidate_ix, &candidate_coh, &refined_coh, trial_mult.len());
+    let selected_trial_ix = select_candidate(
+        &candidate_ix,
+        &candidate_coh,
+        &refined_coh,
+        trial_mult.len(),
+    );
     let selected_local_ix = candidate_ix
         .iter()
         .position(|&trial_ix| trial_ix == selected_trial_ix)
@@ -876,7 +1001,12 @@ fn solve_row_row_invariant(
     solve_row_from_trials(&row, trial_mult, &coh_trial, store_phase)
 }
 
-fn solve_row_from_trials(row: &RowData, trial_mult: &[f64], coh_trial: &[f64], store_phase: bool) -> RefinedRow {
+fn solve_row_from_trials(
+    row: &RowData,
+    trial_mult: &[f64],
+    coh_trial: &[f64],
+    store_phase: bool,
+) -> RefinedRow {
     let candidate_ix = near_max_trial_indices(coh_trial);
     if candidate_ix.len() == 1 {
         let coarse_k0 = QUARTER_PI / row.bperp_range * trial_mult[candidate_ix[0]];
@@ -891,7 +1021,12 @@ fn solve_row_from_trials(row: &RowData, trial_mult: &[f64], coh_trial: &[f64], s
         candidate_coh.push(coh_trial[trial_ix]);
     }
     let refined_coh = refined.iter().map(|row| row.coh).collect::<Vec<_>>();
-    let selected_trial_ix = select_candidate(&candidate_ix, &candidate_coh, &refined_coh, trial_mult.len());
+    let selected_trial_ix = select_candidate(
+        &candidate_ix,
+        &candidate_coh,
+        &refined_coh,
+        trial_mult.len(),
+    );
     let selected_local_ix = candidate_ix
         .iter()
         .position(|&trial_ix| trial_ix == selected_trial_ix)
@@ -938,7 +1073,9 @@ fn accumulate_weighted_grid<'py>(
         return Err(PyValueError::new_err("ph_weight must be a 2-D matrix"));
     }
     if grid_view.len() != ph_view.shape()[0] {
-        return Err(PyValueError::new_err("grid_lin length must match ph_weight row count"));
+        return Err(PyValueError::new_err(
+            "grid_lin length must match ph_weight row count",
+        ));
     }
 
     let ph_slice = ph_view
@@ -1056,8 +1193,9 @@ fn ps_topofit_batch_generic_f64_impl<'py>(
     let coh_values: Vec<f64> = rows.iter().map(|row| row.coh).collect();
     let residual: Vec<Complex32> = rows.into_iter().flat_map(|row| row.residual).collect();
 
-    let residual_array = Array2::from_shape_vec((n_row, n_col), residual)
-        .map_err(|err| PyValueError::new_err(format!("failed to build topofit residual output: {err}")))?;
+    let residual_array = Array2::from_shape_vec((n_row, n_col), residual).map_err(|err| {
+        PyValueError::new_err(format!("failed to build topofit residual output: {err}"))
+    })?;
     Ok((
         Array1::from_vec(k_values).into_pyarray(py),
         Array1::from_vec(c_values).into_pyarray(py),
@@ -1095,7 +1233,10 @@ fn ps_topofit_batch_generic_f32<'py>(
         .ok_or_else(|| PyValueError::new_err("bperp must be C-contiguous"))?;
     let n_row = cpx_view.shape()[0];
     let n_col = cpx_view.shape()[1];
-    let trial_mult: Vec<f32> = trial_values(n_trial_wraps).into_iter().map(|value| value as f32).collect();
+    let trial_mult: Vec<f32> = trial_values(n_trial_wraps)
+        .into_iter()
+        .map(|value| value as f32)
+        .collect();
     let pool = build_pool(threads)?;
 
     let rows = py.detach(move || {
@@ -1126,8 +1267,9 @@ fn ps_topofit_batch_generic_f32<'py>(
     let coh_values: Vec<f64> = rows.iter().map(|row| row.coh).collect();
     let residual: Vec<Complex32> = rows.into_iter().flat_map(|row| row.residual).collect();
 
-    let residual_array = Array2::from_shape_vec((n_row, n_col), residual)
-        .map_err(|err| PyValueError::new_err(format!("failed to build topofit residual output: {err}")))?;
+    let residual_array = Array2::from_shape_vec((n_row, n_col), residual).map_err(|err| {
+        PyValueError::new_err(format!("failed to build topofit residual output: {err}"))
+    })?;
     Ok((
         Array1::from_vec(k_values).into_pyarray(py),
         Array1::from_vec(c_values).into_pyarray(py),
@@ -1180,7 +1322,9 @@ fn ps_topofit_batch_row_invariant<'py>(
     let n_row = cpx_view.shape()[0];
     let n_col = cpx_view.shape()[1];
     if bp_view.len() != n_col {
-        return Err(PyValueError::new_err("row-invariant bperp vector length must match cpxphase width"));
+        return Err(PyValueError::new_err(
+            "row-invariant bperp vector length must match cpxphase width",
+        ));
     }
 
     let trial_mult = trial_values(n_trial_wraps);
@@ -1213,8 +1357,11 @@ fn ps_topofit_batch_row_invariant<'py>(
     let coh_values: Vec<f64> = rows.iter().map(|row| row.coh).collect();
     let residual: Vec<Complex32> = rows.into_iter().flat_map(|row| row.residual).collect();
 
-    let residual_array = Array2::from_shape_vec((n_row, n_col), residual)
-        .map_err(|err| PyValueError::new_err(format!("failed to build row-invariant residual output: {err}")))?;
+    let residual_array = Array2::from_shape_vec((n_row, n_col), residual).map_err(|err| {
+        PyValueError::new_err(format!(
+            "failed to build row-invariant residual output: {err}"
+        ))
+    })?;
     Ok((
         Array1::from_vec(k_values).into_pyarray(py),
         Array1::from_vec(c_values).into_pyarray(py),
@@ -1246,7 +1393,9 @@ fn ps_topofit_coh_row_invariant<'py>(
     let n_row = cpx_view.shape()[0];
     let n_col = cpx_view.shape()[1];
     if bp_view.len() != n_col {
-        return Err(PyValueError::new_err("row-invariant bperp vector length must match cpxphase width"));
+        return Err(PyValueError::new_err(
+            "row-invariant bperp vector length must match cpxphase width",
+        ));
     }
 
     let trial_mult = trial_values(n_trial_wraps);
@@ -1301,18 +1450,22 @@ fn histogram_with_centers<'py>(
         return Ok(Array1::from_vec(out).into_pyarray(py));
     }
 
-    let diffs: Vec<f64> = center_slice.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    let diffs: Vec<f64> = center_slice
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .collect();
     let max_abs_center = center_slice
         .iter()
         .fold(0.0_f64, |acc, &value| acc.max(value.abs()));
-    let equal_spacing = diffs.iter().all(|&diff| {
-        (diff - diffs[0]).abs() <= f64::EPSILON * (1.0_f64).max(max_abs_center)
-    });
+    let equal_spacing = diffs
+        .iter()
+        .all(|&diff| (diff - diffs[0]).abs() <= f64::EPSILON * (1.0_f64).max(max_abs_center));
     if equal_spacing {
         let d = if center_slice.len() < 3 {
             1.0_f64
         } else {
-            (center_slice[center_slice.len() - 1] - center_slice[0]) / ((center_slice.len() - 1) as f64)
+            (center_slice[center_slice.len() - 1] - center_slice[0])
+                / ((center_slice.len() - 1) as f64)
         };
         let cutoff0 = (center_slice[0] + center_slice[1]) / 2.0;
         let max_bin = (center_slice.len() - 1) as f64;
@@ -1326,7 +1479,10 @@ fn histogram_with_centers<'py>(
         return Ok(Array1::from_vec(out).into_pyarray(py));
     }
 
-    let mids: Vec<f64> = center_slice.windows(2).map(|pair| (pair[0] + pair[1]) / 2.0).collect();
+    let mids: Vec<f64> = center_slice
+        .windows(2)
+        .map(|pair| (pair[0] + pair[1]) / 2.0)
+        .collect();
     for &value in value_slice {
         if !value.is_finite() {
             continue;
@@ -1347,851 +1503,265 @@ fn histogram_with_centers<'py>(
     Ok(Array1::from_vec(out).into_pyarray(py))
 }
 
-fn wrap_phase(value: f64) -> f64 {
-    value.sin().atan2(value.cos())
-}
-
-fn weighted_affine_fit_rows(time_diff: &[f64], y: &[f64], n_row: usize, n_col: usize, w: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let mut intercept = vec![0.0_f64; n_row];
-    let mut slope = vec![0.0_f64; n_row];
-    if n_row == 0 || n_col == 0 {
-        return (intercept, slope);
-    }
-
-    let s0: f64 = w.iter().copied().sum();
-    let s1: f64 = w.iter().zip(time_diff.iter()).map(|(&wi, &ti)| wi * ti).sum();
-    let s2: f64 = w
-        .iter()
-        .zip(time_diff.iter())
-        .map(|(&wi, &ti)| wi * ti * ti)
-        .sum();
-    let det = s0 * s2 - s1 * s1;
-    if det == 0.0 {
-        if s0 != 0.0 {
-            for row_ix in 0..n_row {
-                let mut base = 0.0_f64;
-                for col_ix in 0..n_col {
-                    base += y[row_ix * n_col + col_ix] * w[col_ix];
-                }
-                intercept[row_ix] = base / s0;
-            }
-        }
-        return (intercept, slope);
-    }
-
-    for row_ix in 0..n_row {
-        let mut wy0 = 0.0_f64;
-        let mut wy1 = 0.0_f64;
-        for col_ix in 0..n_col {
-            let value = y[row_ix * n_col + col_ix];
-            let weight = w[col_ix];
-            wy0 += value * weight;
-            wy1 += value * weight * time_diff[col_ix];
-        }
-        intercept[row_ix] = (wy0 * s2 - wy1 * s1) / det;
-        slope[row_ix] = (wy1 * s0 - wy0 * s1) / det;
-    }
-    (intercept, slope)
-}
-
-fn weighted_slope_fit_rows_real(x: &[f64], y: &[f64], n_row: usize, n_col: usize, w: &[f64]) -> Vec<f64> {
-    let mut out = vec![0.0_f64; n_row];
-    if n_row == 0 || n_col == 0 {
-        return out;
-    }
-
-    let inf_idx: Vec<usize> = w
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, &value)| if value.is_infinite() { Some(idx) } else { None })
-        .collect();
-    if !inf_idx.is_empty() {
-        let den: f64 = inf_idx.iter().map(|&idx| x[idx] * x[idx]).sum();
-        if den == 0.0 {
-            return out;
-        }
-        for row_ix in 0..n_row {
-            let mut num = 0.0_f64;
-            for &col_ix in &inf_idx {
-                num += y[row_ix * n_col + col_ix] * x[col_ix];
-            }
-            out[row_ix] = num / den;
-        }
-        return out;
-    }
-
-    let pos_idx: Vec<usize> = w
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, &value)| if value.is_finite() && value > 0.0 { Some(idx) } else { None })
-        .collect();
-    if pos_idx.is_empty() {
-        return out;
-    }
-
-    let den: f64 = pos_idx.iter().map(|&idx| w[idx] * x[idx] * x[idx]).sum();
-    if den == 0.0 {
-        return out;
-    }
-    for row_ix in 0..n_row {
-        let mut num = 0.0_f64;
-        for &col_ix in &pos_idx {
-            num += y[row_ix * n_col + col_ix] * w[col_ix] * x[col_ix];
-        }
-        out[row_ix] = num / den;
-    }
-    out
-}
-
-fn weighted_slope_fit_rows_complex(
-    x: &[f64],
-    y: &[Complex64],
-    n_row: usize,
-    n_col: usize,
-    w: &[f64],
-) -> Vec<Complex64> {
-    let mut out = vec![Complex64::new(0.0, 0.0); n_row];
-    if n_row == 0 || n_col == 0 {
-        return out;
-    }
-
-    let inf_idx: Vec<usize> = w
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, &value)| if value.is_infinite() { Some(idx) } else { None })
-        .collect();
-    if !inf_idx.is_empty() {
-        let den: f64 = inf_idx.iter().map(|&idx| x[idx] * x[idx]).sum();
-        if den == 0.0 {
-            return out;
-        }
-        for row_ix in 0..n_row {
-            let mut num = Complex64::new(0.0, 0.0);
-            for &col_ix in &inf_idx {
-                num += y[row_ix * n_col + col_ix] * x[col_ix];
-            }
-            out[row_ix] = num / den;
-        }
-        return out;
-    }
-
-    let pos_idx: Vec<usize> = w
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, &value)| if value.is_finite() && value > 0.0 { Some(idx) } else { None })
-        .collect();
-    if pos_idx.is_empty() {
-        return out;
-    }
-
-    let den: f64 = pos_idx.iter().map(|&idx| w[idx] * x[idx] * x[idx]).sum();
-    if den == 0.0 {
-        return out;
-    }
-    for row_ix in 0..n_row {
-        let mut num = Complex64::new(0.0, 0.0);
-        for &col_ix in &pos_idx {
-            num += y[row_ix * n_col + col_ix] * (w[col_ix] * x[col_ix]);
-        }
-        out[row_ix] = num / den;
-    }
-    out
-}
-
-fn variance_cols_real(data: &[f64], n_row: usize, n_col: usize, ddof: usize) -> Vec<f64> {
-    let mut out = vec![0.0_f64; n_col];
-    if n_row == 0 || n_col == 0 {
-        return out;
-    }
-    let denom = n_row.saturating_sub(ddof);
-    if denom == 0 {
-        return out;
-    }
-    for col_ix in 0..n_col {
-        let mut mean = 0.0_f64;
-        for row_ix in 0..n_row {
-            mean += data[row_ix * n_col + col_ix];
-        }
-        mean /= n_row as f64;
-        let mut accum = 0.0_f64;
-        for row_ix in 0..n_row {
-            let delta = data[row_ix * n_col + col_ix] - mean;
-            accum += delta * delta;
-        }
-        out[col_ix] = accum / denom as f64;
-    }
-    out
-}
-
-fn variance_cols_complex(data: &[Complex64], n_row: usize, n_col: usize, ddof: usize) -> Vec<f64> {
-    let mut out = vec![0.0_f64; n_col];
-    if n_row == 0 || n_col == 0 {
-        return out;
-    }
-    let denom = n_row.saturating_sub(ddof);
-    if denom == 0 {
-        return out;
-    }
-    for col_ix in 0..n_col {
-        let mut mean = Complex64::new(0.0, 0.0);
-        for row_ix in 0..n_row {
-            mean += data[row_ix * n_col + col_ix];
-        }
-        mean /= n_row as f64;
-        let mut accum = 0.0_f64;
-        for row_ix in 0..n_row {
-            let delta = data[row_ix * n_col + col_ix] - mean;
-            accum += delta.norm_sqr();
-        }
-        out[col_ix] = accum / denom as f64;
-    }
-    out
-}
-
-fn std_max_rows_real(data: &[f64], n_row: usize, n_col: usize, ddof: usize) -> (Vec<f64>, Vec<f64>) {
-    let mut std = vec![0.0_f64; n_row];
-    let mut max_abs = vec![0.0_f64; n_row];
-    if n_row == 0 || n_col == 0 {
-        return (std, max_abs);
-    }
-    let denom = n_col.saturating_sub(ddof);
-    for row_ix in 0..n_row {
-        let row = &data[row_ix * n_col..(row_ix + 1) * n_col];
-        let mean = row.iter().copied().sum::<f64>() / n_col as f64;
-        let mut accum = 0.0_f64;
-        let mut max_value = 0.0_f64;
-        for &value in row {
-            let delta = value - mean;
-            accum += delta * delta;
-            max_value = max_value.max(value.abs());
-        }
-        std[row_ix] = if denom == 0 { 0.0 } else { (accum / denom as f64).sqrt() };
-        max_abs[row_ix] = max_value;
-    }
-    (std, max_abs)
-}
-
-fn stage4_edge_stats_outputs(
-    ph_slice: &[Complex64],
-    n_node: usize,
-    n_ifg: usize,
-    edge_a: &[usize],
-    edge_b: &[usize],
-    bperp: &[f64],
-    day: &[f64],
-    time_win: f64,
-    small_baseline: bool,
-    threads: usize,
-) -> PyResult<(Vec<f64>, Vec<f64>)> {
-    let n_edge = edge_a.len();
-    let mut ps_std = vec![f64::INFINITY; n_node];
-    let mut ps_max = vec![f64::INFINITY; n_node];
-    if n_edge == 0 || n_ifg == 0 {
-        return Ok((ps_std, ps_max));
-    }
-
-    let pool = build_pool(threads)?;
-    let mut dph_space = vec![Complex64::new(0.0, 0.0); n_edge * n_ifg];
-    match &pool {
-        Some(pool) => pool.install(|| {
-            dph_space
-                .par_chunks_mut(n_ifg)
-                .enumerate()
-                .for_each(|(edge_ix, row)| {
-                    let a_ix = edge_a[edge_ix];
-                    let b_ix = edge_b[edge_ix];
-                    for ifg_ix in 0..n_ifg {
-                        row[ifg_ix] = ph_slice[b_ix * n_ifg + ifg_ix] * ph_slice[a_ix * n_ifg + ifg_ix].conj();
-                    }
-                });
-        }),
-        None => {
-            for edge_ix in 0..n_edge {
-                let a_ix = edge_a[edge_ix];
-                let b_ix = edge_b[edge_ix];
-                let row = &mut dph_space[edge_ix * n_ifg..(edge_ix + 1) * n_ifg];
-                for ifg_ix in 0..n_ifg {
-                    row[ifg_ix] = ph_slice[b_ix * n_ifg + ifg_ix] * ph_slice[a_ix * n_ifg + ifg_ix].conj();
-                }
-            }
-        }
-    }
-
-    let (edge_std, edge_max) = if !small_baseline {
-        if day.len() != n_ifg {
-            return Err(PyValueError::new_err("stage4_edge_stats day length must match phase width"));
-        }
-        let time_win_f = time_win.max(1.0e-6);
-        let mut time_diff_all = vec![0.0_f64; n_ifg * n_ifg];
-        let mut weight_all = vec![0.0_f64; n_ifg * n_ifg];
-        for row_ix in 0..n_ifg {
-            let mut weight_sum = 0.0_f64;
-            for col_ix in 0..n_ifg {
-                let diff = day[row_ix] - day[col_ix];
-                time_diff_all[row_ix * n_ifg + col_ix] = diff;
-                let weight = (-(diff * diff) / (2.0 * time_win_f * time_win_f)).exp();
-                weight_all[row_ix * n_ifg + col_ix] = weight;
-                weight_sum += weight;
-            }
-            if weight_sum <= 0.0 {
-                let fill = 1.0 / n_ifg as f64;
-                for col_ix in 0..n_ifg {
-                    weight_all[row_ix * n_ifg + col_ix] = fill;
-                }
-            } else {
-                for col_ix in 0..n_ifg {
-                    weight_all[row_ix * n_ifg + col_ix] /= weight_sum;
-                }
-            }
-        }
-
-        let mut dph_smooth0 = vec![Complex64::new(0.0, 0.0); n_edge * n_ifg];
-        match &pool {
-            Some(pool) => pool.install(|| {
-                dph_smooth0
-                    .par_chunks_mut(n_ifg)
-                    .enumerate()
-                    .for_each(|(edge_ix, row)| {
-                        let source = &dph_space[edge_ix * n_ifg..(edge_ix + 1) * n_ifg];
-                        for out_ix in 0..n_ifg {
-                            let weights = &weight_all[out_ix * n_ifg..(out_ix + 1) * n_ifg];
-                            let mut accum = Complex64::new(0.0, 0.0);
-                            for src_ix in 0..n_ifg {
-                                accum += source[src_ix] * weights[src_ix];
-                            }
-                            row[out_ix] = accum;
-                        }
-                    });
-            }),
-            None => {
-                for edge_ix in 0..n_edge {
-                    let source = &dph_space[edge_ix * n_ifg..(edge_ix + 1) * n_ifg];
-                    let row = &mut dph_smooth0[edge_ix * n_ifg..(edge_ix + 1) * n_ifg];
-                    for out_ix in 0..n_ifg {
-                        let weights = &weight_all[out_ix * n_ifg..(out_ix + 1) * n_ifg];
-                        let mut accum = Complex64::new(0.0, 0.0);
-                        for src_ix in 0..n_ifg {
-                            accum += source[src_ix] * weights[src_ix];
-                        }
-                        row[out_ix] = accum;
-                    }
-                }
-            }
-        }
-
-        let mut dph_smooth2 = dph_smooth0.clone();
-        for edge_ix in 0..n_edge {
-            for ifg_ix in 0..n_ifg {
-                let diag = weight_all[ifg_ix * n_ifg + ifg_ix];
-                dph_smooth2[edge_ix * n_ifg + ifg_ix] -= dph_space[edge_ix * n_ifg + ifg_ix] * diag;
-            }
-        }
-
-        let columns = match &pool {
-            Some(pool) => pool.install(|| {
-                (0..n_ifg)
-                    .into_par_iter()
-                    .map(|ifg_ix| {
-                        let time_diff = &time_diff_all[ifg_ix * n_ifg..(ifg_ix + 1) * n_ifg];
-                        let weight = &weight_all[ifg_ix * n_ifg..(ifg_ix + 1) * n_ifg];
-                        let mut dph_mean_adj = vec![0.0_f64; n_edge * n_ifg];
-                        let mut dph_mean = vec![Complex64::new(0.0, 0.0); n_edge];
-                        for edge_ix in 0..n_edge {
-                            let mean = dph_smooth0[edge_ix * n_ifg + ifg_ix];
-                            dph_mean[edge_ix] = mean;
-                            let mean_conj = mean.conj();
-                            for col_ix in 0..n_ifg {
-                                dph_mean_adj[edge_ix * n_ifg + col_ix] =
-                                    (dph_space[edge_ix * n_ifg + col_ix] * mean_conj).arg();
-                            }
-                        }
-                        let (m0, m1) = weighted_affine_fit_rows(time_diff, &dph_mean_adj, n_edge, n_ifg, weight);
-                        let mut dph_mean_adj2 = vec![0.0_f64; n_edge * n_ifg];
-                        for edge_ix in 0..n_edge {
-                            for col_ix in 0..n_ifg {
-                                let detrended =
-                                    dph_mean_adj[edge_ix * n_ifg + col_ix] - (m0[edge_ix] + m1[edge_ix] * time_diff[col_ix]);
-                                dph_mean_adj2[edge_ix * n_ifg + col_ix] = wrap_phase(detrended);
-                            }
-                        }
-                        let (m20, _) = weighted_affine_fit_rows(time_diff, &dph_mean_adj2, n_edge, n_ifg, weight);
-                        let mut column = vec![Complex64::new(0.0, 0.0); n_edge];
-                        for edge_ix in 0..n_edge {
-                            column[edge_ix] = dph_mean[edge_ix] * Complex64::from_polar(1.0, m0[edge_ix] + m20[edge_ix]);
-                        }
-                        column
-                    })
-                    .collect::<Vec<_>>()
-            }),
-            None => {
-                let mut cols = Vec::with_capacity(n_ifg);
-                for ifg_ix in 0..n_ifg {
-                    let time_diff = &time_diff_all[ifg_ix * n_ifg..(ifg_ix + 1) * n_ifg];
-                    let weight = &weight_all[ifg_ix * n_ifg..(ifg_ix + 1) * n_ifg];
-                    let mut dph_mean_adj = vec![0.0_f64; n_edge * n_ifg];
-                    let mut dph_mean = vec![Complex64::new(0.0, 0.0); n_edge];
-                    for edge_ix in 0..n_edge {
-                        let mean = dph_smooth0[edge_ix * n_ifg + ifg_ix];
-                        dph_mean[edge_ix] = mean;
-                        let mean_conj = mean.conj();
-                        for col_ix in 0..n_ifg {
-                            dph_mean_adj[edge_ix * n_ifg + col_ix] =
-                                (dph_space[edge_ix * n_ifg + col_ix] * mean_conj).arg();
-                        }
-                    }
-                    let (m0, m1) = weighted_affine_fit_rows(time_diff, &dph_mean_adj, n_edge, n_ifg, weight);
-                    let mut dph_mean_adj2 = vec![0.0_f64; n_edge * n_ifg];
-                    for edge_ix in 0..n_edge {
-                        for col_ix in 0..n_ifg {
-                            let detrended =
-                                dph_mean_adj[edge_ix * n_ifg + col_ix] - (m0[edge_ix] + m1[edge_ix] * time_diff[col_ix]);
-                            dph_mean_adj2[edge_ix * n_ifg + col_ix] = wrap_phase(detrended);
-                        }
-                    }
-                    let (m20, _) = weighted_affine_fit_rows(time_diff, &dph_mean_adj2, n_edge, n_ifg, weight);
-                    let mut column = vec![Complex64::new(0.0, 0.0); n_edge];
-                    for edge_ix in 0..n_edge {
-                        column[edge_ix] = dph_mean[edge_ix] * Complex64::from_polar(1.0, m0[edge_ix] + m20[edge_ix]);
-                    }
-                    cols.push(column);
-                }
-                cols
-            }
-        };
-
-        let mut dph_smooth = dph_smooth0;
-        for ifg_ix in 0..n_ifg {
-            for edge_ix in 0..n_edge {
-                dph_smooth[edge_ix * n_ifg + ifg_ix] = columns[ifg_ix][edge_ix];
-            }
-        }
-
-        let mut dph_noise = vec![0.0_f64; n_edge * n_ifg];
-        let mut dph_noise2 = vec![0.0_f64; n_edge * n_ifg];
-        for edge_ix in 0..n_edge {
-            for ifg_ix in 0..n_ifg {
-                dph_noise[edge_ix * n_ifg + ifg_ix] =
-                    (dph_space[edge_ix * n_ifg + ifg_ix] * dph_smooth[edge_ix * n_ifg + ifg_ix].conj()).arg();
-                dph_noise2[edge_ix * n_ifg + ifg_ix] =
-                    (dph_space[edge_ix * n_ifg + ifg_ix] * dph_smooth2[edge_ix * n_ifg + ifg_ix].conj()).arg();
-            }
-        }
-
-        let ddof_var = if n_edge > 1 { 1 } else { 0 };
-        let ifg_var = variance_cols_real(&dph_noise2, n_edge, n_ifg, ddof_var);
-        let w_ifg: Vec<f64> = ifg_var
-            .iter()
-            .map(|&value| if value == 0.0 { f64::INFINITY } else { 1.0 / value })
-            .collect();
-        let k_edge = weighted_slope_fit_rows_real(bperp, &dph_noise, n_edge, n_ifg, &w_ifg);
-        for edge_ix in 0..n_edge {
-            let slope = k_edge[edge_ix];
-            for ifg_ix in 0..n_ifg {
-                dph_noise[edge_ix * n_ifg + ifg_ix] -= slope * bperp[ifg_ix];
-            }
-        }
-        let ddof = if n_ifg > 1 { 1 } else { 0 };
-        std_max_rows_real(&dph_noise, n_edge, n_ifg, ddof)
-    } else {
-        let ddof_var = if n_edge > 1 { 1 } else { 0 };
-        let ifg_var = variance_cols_complex(&dph_space, n_edge, n_ifg, ddof_var);
-        let w_ifg: Vec<f64> = ifg_var
-            .iter()
-            .map(|&value| if value == 0.0 { f64::INFINITY } else { 1.0 / value })
-            .collect();
-        let k_edge = weighted_slope_fit_rows_complex(bperp, &dph_space, n_edge, n_ifg, &w_ifg);
-        let mut ang = vec![0.0_f64; n_edge * n_ifg];
-        for edge_ix in 0..n_edge {
-            let slope = k_edge[edge_ix];
-            for ifg_ix in 0..n_ifg {
-                ang[edge_ix * n_ifg + ifg_ix] = (dph_space[edge_ix * n_ifg + ifg_ix] - slope * bperp[ifg_ix]).arg();
-            }
-        }
-        let ddof = if n_ifg > 1 { 1 } else { 0 };
-        std_max_rows_real(&ang, n_edge, n_ifg, ddof)
-    };
-
-    for edge_ix in 0..n_edge {
-        let a_ix = edge_a[edge_ix];
-        let b_ix = edge_b[edge_ix];
-        ps_std[a_ix] = ps_std[a_ix].min(edge_std[edge_ix]);
-        ps_std[b_ix] = ps_std[b_ix].min(edge_std[edge_ix]);
-        ps_max[a_ix] = ps_max[a_ix].min(edge_max[edge_ix]);
-        ps_max[b_ix] = ps_max[b_ix].min(edge_max[edge_ix]);
-    }
-    Ok((ps_std, ps_max))
-}
-
-#[pyfunction(signature = (ph_weed, node_a, node_b, bperp, day, time_win, small_baseline, threads = 0))]
-fn stage4_edge_stats<'py>(
+#[pyfunction]
+fn stage2_clap_filter_kernel<'py>(
     py: Python<'py>,
-    ph_weed: PyReadonlyArray2<Complex64>,
-    node_a: PyReadonlyArray1<i64>,
-    node_b: PyReadonlyArray1<i64>,
-    bperp: PyReadonlyArray1<f64>,
-    day: PyReadonlyArray1<f64>,
-    time_win: f64,
-    small_baseline: bool,
     threads: usize,
-) -> PyResult<Bound<'py, PyDict>> {
-    let ph_view = ph_weed.as_array();
+) -> PyResult<Bound<'py, PyArray2<f64>>> {
+    let _ = threads;
+    let alpha = 2.5_f64;
+    let std = (7.0_f64 - 1.0) / (2.0 * alpha);
+    let center = (7.0_f64 - 1.0) / 2.0;
+    let mut g = [0.0_f64; 7];
+    for (idx, value) in g.iter_mut().enumerate() {
+        let x = (idx as f64 - center) / std;
+        *value = (-0.5 * x * x).exp();
+    }
+
+    let mut out = Vec::with_capacity(49);
+    for row in 0..7 {
+        for col in 0..7 {
+            out.push(g[row] * g[col]);
+        }
+    }
+
+    Ok(Array2::from_shape_vec((7, 7), out)
+        .map_err(|err| {
+            PyValueError::new_err(format!("failed to build stage2 clap filter kernel: {err}"))
+        })?
+        .into_pyarray(py))
+}
+
+#[pyfunction]
+fn stage2_ph_weight_block<'py>(
+    py: Python<'py>,
+    ph_nm: PyReadonlyArray2<Complex32>,
+    bperp: PyReadonlyArray2<f64>,
+    k_ps: PyReadonlyArray1<f64>,
+    weighting: PyReadonlyArray1<f64>,
+    threads: usize,
+) -> PyResult<Bound<'py, PyArray2<Complex32>>> {
+    let _ = threads;
+    let ph_view = ph_nm.as_array();
+    let bp_view = bperp.as_array();
     if ph_view.ndim() != 2 {
-        return Err(PyValueError::new_err("ph_weed must be a 2-D matrix"));
-    }
-    let node_a_view = node_a.as_array();
-    let node_b_view = node_b.as_array();
-    if node_a_view.len() != node_b_view.len() {
-        return Err(PyValueError::new_err("node_a and node_b must have matching lengths"));
-    }
-    let bperp_view = bperp.as_array();
-    let day_view = day.as_array();
-
-    let ph_slice = ph_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("ph_weed must be C-contiguous"))?;
-    let node_a_slice = node_a_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("node_a must be contiguous"))?;
-    let node_b_slice = node_b_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("node_b must be contiguous"))?;
-    let bperp_slice = bperp_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("bperp must be contiguous"))?;
-    let day_slice = day_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("day must be contiguous"))?;
-
-    let n_node = ph_view.shape()[0];
-    let n_ifg = ph_view.shape()[1];
-    if bperp_slice.len() != n_ifg {
-        return Err(PyValueError::new_err("stage4_edge_stats bperp length must match phase width"));
-    }
-    if !small_baseline && day_slice.len() != n_ifg {
-        return Err(PyValueError::new_err("stage4_edge_stats day length must match phase width"));
-    }
-    let edge_a = parse_indices(node_a_slice, n_node, "node_a")?;
-    let edge_b = parse_indices(node_b_slice, n_node, "node_b")?;
-    let (ps_std, ps_max) = py.detach(move || {
-        stage4_edge_stats_outputs(
-            ph_slice,
-            n_node,
-            n_ifg,
-            &edge_a,
-            &edge_b,
-            bperp_slice,
-            day_slice,
-            time_win,
-            small_baseline,
-            threads,
-        )
-    })?;
-
-    let dict = PyDict::new(py);
-    dict.set_item("ps_std", Array1::from_vec(ps_std).into_pyarray(py))?;
-    dict.set_item("ps_max", Array1::from_vec(ps_max).into_pyarray(py))?;
-    Ok(dict)
-}
-
-#[pyfunction(signature = (ph_proc, ph_mean_v, bperp_mat, unwrap_ix, solve_ix, day, master_ix, ifg_std, threads = 0))]
-fn stage7_scla_parity<'py>(
-    py: Python<'py>,
-    ph_proc: PyReadonlyArray2<f64>,
-    ph_mean_v: PyReadonlyArray2<f64>,
-    bperp_mat: PyReadonlyArray2<f64>,
-    unwrap_ix: PyReadonlyArray1<i64>,
-    solve_ix: PyReadonlyArray1<i64>,
-    day: PyReadonlyArray1<f64>,
-    master_ix: usize,
-    ifg_std: PyReadonlyArray1<f64>,
-    threads: usize,
-) -> PyResult<Bound<'py, PyDict>> {
-    let ph_proc_view = ph_proc.as_array();
-    let ph_mean_v_view = ph_mean_v.as_array();
-    let bperp_view = bperp_mat.as_array();
-    if ph_proc_view.ndim() != 2 || ph_mean_v_view.ndim() != 2 || bperp_view.ndim() != 2 {
-        return Err(PyValueError::new_err("stage7_scla_parity expects 2-D ph_proc, ph_mean_v, and bperp_mat"));
-    }
-    if ph_proc_view.shape() != ph_mean_v_view.shape() || ph_proc_view.shape() != bperp_view.shape() {
         return Err(PyValueError::new_err(
-            "stage7_scla_parity expects ph_proc, ph_mean_v, and bperp_mat with matching shapes",
+            "stage2_ph_weight_block expects a 2-D ph_nm matrix",
         ));
     }
-
-    let ph_proc_slice = ph_proc_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("ph_proc must be C-contiguous"))?;
-    let ph_mean_v_slice = ph_mean_v_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("ph_mean_v must be C-contiguous"))?;
-    let bperp_slice = bperp_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("bperp_mat must be C-contiguous"))?;
-    let unwrap_view = unwrap_ix.as_array();
-    let unwrap_slice = unwrap_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("unwrap_ix must be contiguous"))?;
-    let solve_view = solve_ix.as_array();
-    let solve_slice = solve_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("solve_ix must be contiguous"))?;
-    let day_view = day.as_array();
-    let day_slice = day_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("day must be contiguous"))?;
-    let ifg_std_view = ifg_std.as_array();
-    let ifg_std_slice = ifg_std_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("ifg_std must be contiguous"))?;
-
-    let n_ps = ph_proc_view.shape()[0];
-    let n_ifg = ph_proc_view.shape()[1];
-    let unwrap_idx = parse_indices(unwrap_slice, n_ifg, "unwrap_ix")?;
-    let solve_idx = parse_indices(solve_slice, n_ifg, "solve_ix")?;
-    let outputs = py.detach(move || {
-        stage7_outputs(
-            ph_proc_slice,
-            ph_mean_v_slice,
-            bperp_slice,
-            n_ps,
-            n_ifg,
-            &unwrap_idx,
-            &solve_idx,
-            day_slice,
-            master_ix,
-            ifg_std_slice,
-            threads,
-        )
-    })?;
-
-    let dict = PyDict::new(py);
-    dict.set_item("K_ps_uw", Array1::from_vec(outputs.k_ps_uw).into_pyarray(py))?;
-    dict.set_item("C_ps_uw", Array1::from_vec(outputs.c_ps_uw).into_pyarray(py))?;
-    dict.set_item(
-        "ph_scla",
-        Array2::from_shape_vec((n_ps, n_ifg), outputs.ph_scla)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 ph_scla output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    dict.set_item(
-        "ifg_vcm",
-        Array2::from_shape_vec((n_ifg, n_ifg), outputs.ifg_vcm)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 ifg_vcm output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    dict.set_item("mean_v", Array1::from_vec(outputs.mean_v).into_pyarray(py))?;
-    dict.set_item(
-        "m",
-        Array2::from_shape_vec((2, n_ps), outputs.m)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 mean-velocity output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    dict.set_item(
-        "ph_ramp",
-        Array2::from_shape_vec((n_ps, n_ifg), outputs.ph_ramp)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 ph_ramp output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    Ok(dict)
-}
-
-#[pyfunction(signature = (ph_uw, bperp_mat, no_master, day, master_ix, chunk_ps = 0, threads = 0))]
-fn stage7_scla<'py>(
-    py: Python<'py>,
-    ph_uw: PyReadonlyArray2<f32>,
-    bperp_mat: PyReadonlyArray2<f32>,
-    no_master: PyReadonlyArray1<bool>,
-    day: PyReadonlyArray1<f64>,
-    master_ix: usize,
-    chunk_ps: usize,
-    threads: usize,
-) -> PyResult<Bound<'py, PyDict>> {
-    let ph_view = ph_uw.as_array();
-    let bperp_view = bperp_mat.as_array();
-    let no_master_view = no_master.as_array();
-    if ph_view.ndim() != 2 || bperp_view.ndim() != 2 {
-        return Err(PyValueError::new_err("stage7_scla expects 2-D ph_uw and bperp_mat"));
+    if bp_view.shape() != ph_view.shape() {
+        return Err(PyValueError::new_err(
+            "stage2_ph_weight_block expects bperp shape to match ph_nm",
+        ));
     }
-    let n_ps = ph_view.shape()[0];
-    let n_ifg = ph_view.shape()[1];
-    if no_master_view.len() != n_ifg || day.as_array().len() != n_ifg {
-        return Err(PyValueError::new_err("stage7_scla no_master/day length must match ph_uw width"));
+    let n_row = ph_view.shape()[0];
+    let n_col = ph_view.shape()[1];
+    let k_view = k_ps.as_array();
+    let weight_view = weighting.as_array();
+    if k_view.len() != n_row || weight_view.len() != n_row {
+        return Err(PyValueError::new_err(
+            "stage2_ph_weight_block expects k_ps and weighting length to match ph_nm rows",
+        ));
     }
-
     let ph_slice = ph_view
         .as_slice()
-        .ok_or_else(|| PyValueError::new_err("ph_uw must be C-contiguous"))?;
-    let bperp_slice = bperp_view
+        .ok_or_else(|| PyValueError::new_err("ph_nm must be C-contiguous"))?;
+    let bp_slice = bp_view
         .as_slice()
-        .ok_or_else(|| PyValueError::new_err("bperp_mat must be C-contiguous"))?;
-    let no_master_slice = no_master_view
+        .ok_or_else(|| PyValueError::new_err("bperp must be C-contiguous"))?;
+    let k_slice = k_view
         .as_slice()
-        .ok_or_else(|| PyValueError::new_err("no_master must be contiguous"))?;
-    let day_view = day.as_array();
-    let day_slice = day_view
+        .ok_or_else(|| PyValueError::new_err("k_ps must be contiguous"))?;
+    let weight_slice = weight_view
         .as_slice()
-        .ok_or_else(|| PyValueError::new_err("day must be contiguous"))?;
-    let _ = chunk_ps;
+        .ok_or_else(|| PyValueError::new_err("weighting must be contiguous"))?;
 
-    let mut unwrap_idx = Vec::new();
-    for (ifg_ix, &keep) in no_master_slice.iter().enumerate() {
-        if keep {
-            unwrap_idx.push(ifg_ix);
+    let mut out = Vec::with_capacity(n_row * n_col);
+    for row in 0..n_row {
+        let k = k_slice[row];
+        let weight = weight_slice[row];
+        for col in 0..n_col {
+            let idx = row * n_col + col;
+            let angle = bp_slice[idx] * k;
+            let (sin_v, cos_v) = angle.sin_cos();
+            let value = ph_slice[idx];
+            let real = (f64::from(value.re) * cos_v + f64::from(value.im) * sin_v) * weight;
+            let imag = (f64::from(value.im) * cos_v - f64::from(value.re) * sin_v) * weight;
+            out.push(Complex32::new(real as f32, imag as f32));
         }
     }
-    let solve_idx = unwrap_idx.clone();
-    let ph_proc64: Vec<f64> = ph_slice.iter().map(|&value| value as f64).collect();
-    let bperp64: Vec<f64> = bperp_slice.iter().map(|&value| value as f64).collect();
-    let ifg_std = vec![1.0_f64; n_ifg];
 
-    let outputs = py.detach(move || {
-        stage7_outputs(
-            &ph_proc64,
-            &ph_proc64,
-            &bperp64,
-            n_ps,
-            n_ifg,
-            &unwrap_idx,
-            &solve_idx,
-            day_slice,
-            master_ix,
-            &ifg_std,
-            threads,
-        )
-    })?;
-
-    let dict = PyDict::new(py);
-    dict.set_item("K_ps_uw", Array1::from_vec(outputs.k_ps_uw).into_pyarray(py))?;
-    dict.set_item("C_ps_uw", Array1::from_vec(outputs.c_ps_uw).into_pyarray(py))?;
-    dict.set_item(
-        "ph_scla",
-        Array2::from_shape_vec((n_ps, n_ifg), outputs.ph_scla)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 shim ph_scla output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    dict.set_item(
-        "ifg_vcm",
-        Array2::from_shape_vec((n_ifg, n_ifg), outputs.ifg_vcm)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 shim ifg_vcm output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    dict.set_item("mean_v", Array1::from_vec(outputs.mean_v).into_pyarray(py))?;
-    dict.set_item(
-        "m",
-        Array2::from_shape_vec((2, n_ps), outputs.m)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 shim mean-velocity output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    dict.set_item(
-        "ph_ramp",
-        Array2::from_shape_vec((n_ps, n_ifg), outputs.ph_ramp)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage7 shim ph_ramp output: {err}")))?
-            .into_pyarray(py),
-    )?;
-    Ok(dict)
+    Ok(Array2::from_shape_vec((n_row, n_col), out)
+        .map_err(|err| {
+            PyValueError::new_err(format!("failed to build stage2 ph_weight output: {err}"))
+        })?
+        .into_pyarray(py))
 }
 
-#[pyfunction(signature = (uw_ph, node_a, node_b, chunk_edges = 0, threads = 0))]
-fn stage8_edge_noise<'py>(
+#[pyfunction]
+fn stage2_grid_indices<'py>(
     py: Python<'py>,
-    uw_ph: PyReadonlyArray2<Complex32>,
-    node_a: PyReadonlyArray1<i64>,
-    node_b: PyReadonlyArray1<i64>,
-    chunk_edges: usize,
+    xy: PyReadonlyArray2<f32>,
+    grid_size: f32,
+    threads: usize,
+) -> PyResult<Bound<'py, PyArray2<f32>>> {
+    let _ = threads;
+    let xy_view = xy.as_array();
+    if xy_view.ndim() != 2 || xy_view.shape()[1] < 3 {
+        return Err(PyValueError::new_err(
+            "stage2_grid_indices expects an xy matrix with at least 3 columns",
+        ));
+    }
+    let n_row = xy_view.shape()[0];
+    if n_row == 0 {
+        return Err(PyValueError::new_err(
+            "stage2_grid_indices expects at least one xy row",
+        ));
+    }
+    if !grid_size.is_finite() || grid_size == 0.0 {
+        return Err(PyValueError::new_err(
+            "stage2_grid_indices expects a finite non-zero grid_size",
+        ));
+    }
+    let n_col = xy_view.shape()[1];
+    let xy_slice = xy_view
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("xy must be C-contiguous"))?;
+
+    let mut x_min = xy_slice[1];
+    let mut y_min = xy_slice[2];
+    for row in 1..n_row {
+        let base = row * n_col;
+        x_min = x_min.min(xy_slice[base + 1]);
+        y_min = y_min.min(xy_slice[base + 2]);
+    }
+
+    let eps = 1e-6_f32;
+    let mut grid_i = Vec::with_capacity(n_row);
+    let mut grid_j = Vec::with_capacity(n_row);
+    let mut max_i = i64::MIN;
+    let mut max_j = i64::MIN;
+    for row in 0..n_row {
+        let base = row * n_col;
+        let i = ((xy_slice[base + 2] - y_min + eps) / grid_size).ceil() as i64;
+        let j = ((xy_slice[base + 1] - x_min + eps) / grid_size).ceil() as i64;
+        max_i = max_i.max(i);
+        max_j = max_j.max(j);
+        grid_i.push(i);
+        grid_j.push(j);
+    }
+
+    if max_i > 1 {
+        for value in &mut grid_i {
+            if *value == max_i {
+                *value = max_i - 1;
+            }
+        }
+    }
+    if max_j > 1 {
+        for value in &mut grid_j {
+            if *value == max_j {
+                *value = max_j - 1;
+            }
+        }
+    }
+
+    let mut out = Vec::with_capacity(n_row * 2);
+    for row in 0..n_row {
+        out.push(grid_i[row].max(1) as f32);
+        out.push(grid_j[row].max(1) as f32);
+    }
+
+    Ok(Array2::from_shape_vec((n_row, 2), out)
+        .map_err(|err| {
+            PyValueError::new_err(format!("failed to build stage2 grid indices output: {err}"))
+        })?
+        .into_pyarray(py))
+}
+
+#[pyfunction]
+fn stage2_normalize_complex<'py>(
+    py: Python<'py>,
+    values: PyReadonlyArray2<Complex32>,
+    threads: usize,
+) -> PyResult<Bound<'py, PyArray2<Complex32>>> {
+    let _ = threads;
+    let view = values.as_array();
+    if view.ndim() != 2 {
+        return Err(PyValueError::new_err(
+            "stage2_normalize_complex expects a 2-D complex matrix",
+        ));
+    }
+    let n_row = view.shape()[0];
+    let n_col = view.shape()[1];
+    let slice = view
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("values must be C-contiguous"))?;
+
+    let mut out = Vec::with_capacity(n_row * n_col);
+    for &value in slice {
+        let mag = (value.re * value.re + value.im * value.im).sqrt();
+        if mag != 0.0 {
+            out.push(Complex32::new(value.re / mag, value.im / mag));
+        } else {
+            out.push(value);
+        }
+    }
+
+    Ok(Array2::from_shape_vec((n_row, n_col), out)
+        .map_err(|err| {
+            PyValueError::new_err(format!("failed to build stage2 normalized output: {err}"))
+        })?
+        .into_pyarray(py))
+}
+
+#[pyfunction]
+fn stage2_normalize_phase_matrix<'py>(
+    py: Python<'py>,
+    ph_nm: PyReadonlyArray2<Complex32>,
     threads: usize,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let ph_view = uw_ph.as_array();
-    let node_a_view = node_a.as_array();
-    let node_b_view = node_b.as_array();
-    if ph_view.ndim() != 2 {
-        return Err(PyValueError::new_err("uw_ph must be a 2-D matrix"));
+    let _ = threads;
+    let view = ph_nm.as_array();
+    if view.ndim() != 2 {
+        return Err(PyValueError::new_err(
+            "stage2_normalize_phase_matrix expects a 2-D complex matrix",
+        ));
     }
-    if node_a_view.len() != node_b_view.len() {
-        return Err(PyValueError::new_err("node_a and node_b must have matching lengths"));
-    }
+    let n_row = view.shape()[0];
+    let n_col = view.shape()[1];
+    let slice = view
+        .as_slice()
+        .ok_or_else(|| PyValueError::new_err("ph_nm must be C-contiguous"))?;
 
-    let ph_slice = ph_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("uw_ph must be C-contiguous"))?;
-    let node_a_slice = node_a_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("node_a must be contiguous"))?;
-    let node_b_slice = node_b_view
-        .as_slice()
-        .ok_or_else(|| PyValueError::new_err("node_b must be contiguous"))?;
-    let n_node = ph_view.shape()[0];
-    let n_ifg = ph_view.shape()[1];
-    let edge_a = parse_indices(node_a_slice, n_node, "node_a")?;
-    let edge_b = parse_indices(node_b_slice, n_node, "node_b")?;
-    let n_edge = edge_a.len();
-    let _ = chunk_edges;
-    let pool = build_pool(threads)?;
-
-    let rows = py.detach(move || {
-        let compute = || {
-            (0..n_edge)
-                .into_par_iter()
-                .map(|edge_ix| {
-                    let a_ix = edge_a[edge_ix];
-                    let b_ix = edge_b[edge_ix];
-                    let mut dph_space = vec![0.0_f32; n_ifg];
-                    let mut sum = 0.0_f64;
-                    for ifg_ix in 0..n_ifg {
-                        let left = ph_slice[a_ix * n_ifg + ifg_ix];
-                        let right = ph_slice[b_ix * n_ifg + ifg_ix];
-                        let phase = (right * left.conj()).arg();
-                        dph_space[ifg_ix] = phase;
-                        sum += phase as f64;
-                    }
-                    let mean = if n_ifg == 0 { 0.0_f32 } else { (sum / n_ifg as f64) as f32 };
-                    let dph_noise: Vec<f32> =
-                        dph_space.iter().map(|&value| (value - mean) * STAGE8_NOISE_SCALE).collect();
-                    (dph_noise, dph_space)
-                })
-                .collect::<Vec<_>>()
-        };
-        match pool {
-            Some(pool) => pool.install(compute),
-            None => (0..n_edge)
-                .map(|edge_ix| {
-                    let a_ix = edge_a[edge_ix];
-                    let b_ix = edge_b[edge_ix];
-                    let mut dph_space = vec![0.0_f32; n_ifg];
-                    let mut sum = 0.0_f64;
-                    for ifg_ix in 0..n_ifg {
-                        let left = ph_slice[a_ix * n_ifg + ifg_ix];
-                        let right = ph_slice[b_ix * n_ifg + ifg_ix];
-                        let phase = (right * left.conj()).arg();
-                        dph_space[ifg_ix] = phase;
-                        sum += phase as f64;
-                    }
-                    let mean = if n_ifg == 0 { 0.0_f32 } else { (sum / n_ifg as f64) as f32 };
-                    let dph_noise: Vec<f32> =
-                        dph_space.iter().map(|&value| (value - mean) * STAGE8_NOISE_SCALE).collect();
-                    (dph_noise, dph_space)
-                })
-                .collect::<Vec<_>>(),
+    let mut ph_out = Vec::with_capacity(n_row * n_col);
+    let mut amp_out = Vec::with_capacity(n_row * n_col);
+    for &value in slice {
+        let mut amp = (value.re * value.re + value.im * value.im).sqrt();
+        if amp == 0.0 {
+            amp = 1.0;
         }
-    });
-
-    let mut dph_noise = vec![0.0_f32; n_edge * n_ifg];
-    let mut dph_space_uw = vec![0.0_f32; n_edge * n_ifg];
-    for (edge_ix, (noise_row, space_row)) in rows.into_iter().enumerate() {
-        dph_noise[edge_ix * n_ifg..(edge_ix + 1) * n_ifg].copy_from_slice(&noise_row);
-        dph_space_uw[edge_ix * n_ifg..(edge_ix + 1) * n_ifg].copy_from_slice(&space_row);
+        amp_out.push(amp);
+        ph_out.push(Complex32::new(value.re / amp, value.im / amp));
     }
 
     let dict = PyDict::new(py);
     dict.set_item(
-        "dph_noise",
-        Array2::from_shape_vec((n_edge, n_ifg), dph_noise)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage8 dph_noise output: {err}")))?
+        "ph",
+        Array2::from_shape_vec((n_row, n_col), ph_out)
+            .map_err(|err| {
+                PyValueError::new_err(format!(
+                    "failed to build stage2 normalized phase output: {err}"
+                ))
+            })?
             .into_pyarray(py),
     )?;
     dict.set_item(
-        "dph_space_uw",
-        Array2::from_shape_vec((n_edge, n_ifg), dph_space_uw)
-            .map_err(|err| PyValueError::new_err(format!("failed to build stage8 dph_space_uw output: {err}")))?
+        "amp",
+        Array2::from_shape_vec((n_row, n_col), amp_out)
+            .map_err(|err| {
+                PyValueError::new_err(format!("failed to build stage2 amplitude output: {err}"))
+            })?
             .into_pyarray(py),
     )?;
     Ok(dict)
@@ -2205,9 +1775,108 @@ fn _stage2_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ps_topofit_batch_row_invariant, m)?)?;
     m.add_function(wrap_pyfunction!(ps_topofit_coh_row_invariant, m)?)?;
     m.add_function(wrap_pyfunction!(histogram_with_centers, m)?)?;
-    m.add_function(wrap_pyfunction!(stage4_edge_stats, m)?)?;
-    m.add_function(wrap_pyfunction!(stage7_scla, m)?)?;
-    m.add_function(wrap_pyfunction!(stage7_scla_parity, m)?)?;
-    m.add_function(wrap_pyfunction!(stage8_edge_noise, m)?)?;
+    m.add_function(wrap_pyfunction!(stage2_clap_filter_kernel, m)?)?;
+    m.add_function(wrap_pyfunction!(stage2_ph_weight_block, m)?)?;
+    m.add_function(wrap_pyfunction!(stage2_grid_indices, m)?)?;
+    m.add_function(wrap_pyfunction!(stage2_normalize_complex, m)?)?;
+    m.add_function(wrap_pyfunction!(stage2_normalize_phase_matrix, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        weighted_fit_native::weighted_affine_fit,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        weighted_fit_native::weighted_slope_fit_real,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        weighted_fit_native::weighted_slope_fit_complex,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage3_native::stage3_select_ifg_index, m)?)?;
+    m.add_function(wrap_pyfunction!(stage3_native::stage3_clap_filt_patch, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage3_clap_stack::stage3_clap_filt_patch_stack,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage3_native::stage3_clap_filt_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage3_native::stage3_clap_filt_grid_stack,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage3_native::stage3_wrap_filt, m)?)?;
+    m.add_function(wrap_pyfunction!(stage3_native::stage3_wrap_filt_global, m)?)?;
+    m.add_function(wrap_pyfunction!(stage3_native::stage3_coh_threshold, m)?)?;
+    m.add_function(wrap_pyfunction!(stage4_native::stage4_duplicate_keep, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage4_native::stage4_adjacent_component_keep,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage4_native::stage4_weed_ifg_index, m)?)?;
+    m.add_function(wrap_pyfunction!(stage4_native::stage4_phase_correction, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage4_edge_stats_native::stage4_edge_stats,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage5_native::stage5_ifg_std, m)?)?;
+    m.add_function(wrap_pyfunction!(stage5_native::stage5_duplicate_keep, m)?)?;
+    m.add_function(wrap_pyfunction!(stage5_native::stage5_rc2_correction, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage5_native::stage5_format_merged_rc2,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage5_native::stage5_patch_keep_mask, m)?)?;
+    m.add_function(wrap_pyfunction!(stage6_native::stage6_unwrap_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(stage6_native::stage6_unwrap_ifg_sets, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage6_native::stage6_single_master_ifg_geometry,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage6_native::stage6_grid_accumulate, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage6_native::stage6_extract_grid_values,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage6_native::stage6_prepare_cost_offsets,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage6_native::stage6_reconstruct_ps_phase,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage6_native::stage6_ps_grid_indices, m)?)?;
+    m.add_function(wrap_pyfunction!(stage6_native::stage6_select_ifgw, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage6_la_native::stage6_estimate_la_error_single_master,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage6_smooth_native::stage6_smooth_3d_full_single_master,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage7_native::stage7_mean_velocity_fit,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage7_native::stage7_center_to_reference,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage7_deramp_native::stage7_deramp_unwrapped_phase,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage7_native::stage7_scla_smooth, m)?)?;
+    m.add_function(wrap_pyfunction!(stage7_scla_native::stage7_scla, m)?)?;
+    m.add_function(wrap_pyfunction!(stage7_scla_native::stage7_scla_parity, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        stage8_native::stage8_weighted_lstsq_diagonal,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        stage8_native::stage8_weighted_lstsq_full,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(stage8_native::stage8_edge_noise, m)?)?;
     Ok(())
 }

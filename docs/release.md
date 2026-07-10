@@ -107,4 +107,4 @@
 - The sdist contains the tracked Python source tree, Rust sources, and release docs needed to rebuild those wheels.
 - Release artifacts do not include `inputs_and_outputs/`, `tmp/`, or the vendored `StaMPS/` tree.
 - Generated directories such as `dist/` and `build/` are excluded from the source distribution so repeated build validation does not recurse on prior outputs.
-- External binaries such as `triangle` and `snaphu` remain user-managed prerequisites.
+- External binaries such as `triangle` and legacy/fallback `snaphu` remain user-managed prerequisites when those execution paths are selected.

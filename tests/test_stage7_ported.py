@@ -10,7 +10,9 @@ from pystamps.pipeline.ported import (
     _select_reference_ps,
     _stage7_mean_velocity_fit,
     _stage7_unwrap_ifg_sets,
+    _weighted_affine_fit,
     _weighted_lstsq_shared_design,
+    _weighted_slope_fit,
 )
 
 
@@ -37,6 +39,106 @@ def test_weighted_lstsq_shared_design_solves_multi_rhs() -> None:
     coeffs = _weighted_lstsq_shared_design(G, Y, cov=cov)
 
     np.testing.assert_allclose(coeffs, coeffs_true, atol=1e-10, rtol=0.0)
+
+
+def test_weighted_lstsq_shared_design_can_route_to_native_wrapper(monkeypatch: object) -> None:
+    G = np.asarray([[1.0, 0.0], [1.0, 2.0], [1.0, 5.0]], dtype=np.float64)
+    Y = np.asarray([[2.0], [4.0], [7.0]], dtype=np.float64)
+    cov = np.diag(np.asarray([1.0, 4.0, 9.0], dtype=np.float64))
+    expected = np.asarray([[1.0], [2.0]], dtype=np.float64)
+    captured: dict[str, object] = {}
+
+    def fake_weighted_lstsq(
+        design: np.ndarray,
+        values: np.ndarray,
+        covariance: np.ndarray | None = None,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> np.ndarray:
+        captured["design"] = np.asarray(design)
+        captured["values"] = np.asarray(values)
+        captured["covariance"] = None if covariance is None else np.asarray(covariance)
+        captured["backend"] = backend
+        captured["threads"] = threads
+        return expected
+
+    monkeypatch.setattr(ported, "run_stage8_weighted_lstsq_kernel", fake_weighted_lstsq)
+
+    observed = _weighted_lstsq_shared_design(G, Y, cov=cov, backend="native", threads=3)
+
+    np.testing.assert_allclose(observed, expected)
+    np.testing.assert_allclose(captured["design"], G)
+    np.testing.assert_allclose(captured["values"], Y)
+    np.testing.assert_allclose(captured["covariance"], cov)
+    assert captured["backend"] == "native"
+    assert captured["threads"] == 3
+
+
+def test_weighted_affine_fit_can_route_to_native_wrapper(monkeypatch: object) -> None:
+    time_diff = np.asarray([-2.0, 0.0, 3.0], dtype=np.float64)
+    y = np.asarray([[1.0, 2.0, 5.0], [3.0, 4.0, 9.0]], dtype=np.float64)
+    weight = np.asarray([1.0, 4.0, 2.0], dtype=np.float64)
+    expected = (np.asarray([1.0, 2.0], dtype=np.float64), np.asarray([3.0, 4.0], dtype=np.float64))
+    captured: dict[str, object] = {}
+
+    def fake_affine(
+        time_arg: np.ndarray,
+        y_arg: np.ndarray,
+        weight_arg: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        captured["time_diff"] = np.asarray(time_arg)
+        captured["y"] = np.asarray(y_arg)
+        captured["weight"] = np.asarray(weight_arg)
+        captured["backend"] = backend
+        captured["threads"] = threads
+        return expected
+
+    monkeypatch.setattr(ported, "run_weighted_affine_fit_kernel", fake_affine)
+
+    observed = _weighted_affine_fit(time_diff, y, weight, backend="native", threads=7)
+
+    np.testing.assert_allclose(observed[0], expected[0])
+    np.testing.assert_allclose(observed[1], expected[1])
+    np.testing.assert_allclose(captured["time_diff"], time_diff)
+    np.testing.assert_allclose(captured["y"], y)
+    np.testing.assert_allclose(captured["weight"], weight)
+    assert captured["backend"] == "native"
+    assert captured["threads"] == 7
+
+
+def test_weighted_slope_fit_can_route_to_native_wrapper(monkeypatch: object) -> None:
+    x = np.asarray([-1.0, 2.0, 4.0], dtype=np.float64)
+    y = np.asarray([[1.0, 3.0, 5.0], [-2.0, 4.0, 8.0]], dtype=np.float64)
+    weight = np.asarray([1.0, np.inf, 2.0], dtype=np.float64)
+    expected = np.asarray([1.5, 2.5], dtype=np.float64)
+    captured: dict[str, object] = {}
+
+    def fake_slope(
+        x_arg: np.ndarray,
+        y_arg: np.ndarray,
+        weight_arg: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> np.ndarray:
+        captured["x"] = np.asarray(x_arg)
+        captured["y"] = np.asarray(y_arg)
+        captured["weight"] = np.asarray(weight_arg)
+        captured["backend"] = backend
+        captured["threads"] = threads
+        return expected
+
+    monkeypatch.setattr(ported, "run_weighted_slope_fit_kernel", fake_slope)
+
+    observed = _weighted_slope_fit(x, y, weight, backend="native", threads=8)
+
+    np.testing.assert_allclose(observed, expected)
+    np.testing.assert_allclose(captured["x"], x)
+    np.testing.assert_allclose(captured["y"], y)
+    np.testing.assert_allclose(captured["weight"], weight)
+    assert captured["backend"] == "native"
+    assert captured["threads"] == 8
 
 
 def test_deramp_unwrapped_phase_removes_linear_plane() -> None:
@@ -66,6 +168,44 @@ def test_deramp_unwrapped_phase_removes_linear_plane() -> None:
 
     np.testing.assert_allclose(ph_ramp, ramp, atol=1e-10, rtol=0.0)
     np.testing.assert_allclose(ph_out, np.zeros_like(ph), atol=1e-10, rtol=0.0)
+
+
+def test_deramp_unwrapped_phase_can_route_to_native_wrapper(monkeypatch: object) -> None:
+    xy = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [2.0, 1000.0, 0.0],
+            [3.0, 0.0, 1000.0],
+        ],
+        dtype=np.float64,
+    )
+    ps = {"n_ps": np.asarray(float(xy.shape[0])), "xy": xy}
+    ph = np.asarray([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float64)
+    expected = (np.full_like(ph, 7.0), np.full_like(ph, 8.0))
+    captured: dict[str, object] = {}
+
+    def fake_deramp(
+        xy_arg: np.ndarray,
+        ph_arg: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        captured["xy"] = np.asarray(xy_arg)
+        captured["ph"] = np.asarray(ph_arg)
+        captured["backend"] = backend
+        captured["threads"] = threads
+        return expected
+
+    monkeypatch.setattr(ported, "run_stage7_deramp_unwrapped_phase_kernel", fake_deramp)
+
+    observed = _deramp_unwrapped_phase(ps, ph, backend="native", threads=4)
+
+    np.testing.assert_allclose(observed[0], expected[0])
+    np.testing.assert_allclose(observed[1], expected[1])
+    np.testing.assert_allclose(captured["xy"], xy)
+    np.testing.assert_allclose(captured["ph"], ph)
+    assert captured["backend"] == "native"
+    assert captured["threads"] == 4
 
 
 def test_select_reference_ps_uses_local_coordinate_units_for_radius() -> None:
@@ -130,6 +270,42 @@ def test_stage7_mean_velocity_fit_uses_full_stack_weights() -> None:
     np.testing.assert_allclose(m, expected, atol=1e-10, rtol=0.0)
 
 
+def test_stage7_mean_velocity_fit_can_route_to_native_wrapper(monkeypatch: object) -> None:
+    ph_mean_v = np.asarray([[3.0, 0.0, -1.0], [-2.0, 0.0, 4.0]], dtype=np.float64)
+    day = np.asarray([8.0, 10.0, 13.0], dtype=np.float64)
+    ifg_std = np.asarray([1.0, 2.0, 4.0], dtype=np.float64)
+    expected = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    captured: dict[str, object] = {}
+
+    def fake_mean_velocity(
+        ph_arg: np.ndarray,
+        day_arg: np.ndarray,
+        master_ix: int,
+        ifg_std_arg: np.ndarray,
+        backend: str = "auto",
+        threads: int = 0,
+    ) -> np.ndarray:
+        captured["ph"] = np.asarray(ph_arg)
+        captured["day"] = np.asarray(day_arg)
+        captured["master_ix"] = master_ix
+        captured["ifg_std"] = np.asarray(ifg_std_arg)
+        captured["backend"] = backend
+        captured["threads"] = threads
+        return expected
+
+    monkeypatch.setattr(ported, "run_stage7_mean_velocity_fit_kernel", fake_mean_velocity)
+
+    observed = _stage7_mean_velocity_fit(ph_mean_v, day, master_ix=2, ifg_std=ifg_std, backend="native", threads=5)
+
+    np.testing.assert_allclose(observed, expected)
+    np.testing.assert_allclose(captured["ph"], ph_mean_v)
+    np.testing.assert_allclose(captured["day"], day)
+    np.testing.assert_allclose(captured["ifg_std"], ifg_std)
+    assert captured["master_ix"] == 2
+    assert captured["backend"] == "native"
+    assert captured["threads"] == 5
+
+
 def test_stage7_calc_scla_deramps_before_centering(monkeypatch: object, tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     dataset_root.mkdir()
@@ -150,6 +326,7 @@ def test_stage7_calc_scla_deramps_before_centering(monkeypatch: object, tmp_path
                 "master_ix": np.asarray(1.0),
                 "day": np.asarray([10.0, 20.0, 30.0], dtype=np.float64),
                 "bperp": np.asarray([0.0, 1.0, 2.0], dtype=np.float64),
+                "xy": np.asarray([[1.0, 0.0, 0.0], [2.0, 1.0, 0.0]], dtype=np.float64),
             }
         if path.name == "phuw2.mat":
             return {

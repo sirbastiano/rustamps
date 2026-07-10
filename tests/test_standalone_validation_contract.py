@@ -12,6 +12,7 @@ PARITY_DOC = (REPO_ROOT / "parity.md").read_text(encoding="utf-8")
 MANIFEST = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 MAKEFILE = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 PYPROJECT = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+ENVIRONMENT = (REPO_ROOT / "environment.yml").read_text(encoding="utf-8")
 
 
 def test_readme_documents_fresh_clone_validation_separately() -> None:
@@ -25,6 +26,7 @@ def test_readme_documents_fresh_clone_validation_separately() -> None:
     assert "inputs_and_outputs/InSAR_dataset_test_stage8diag" in README
     assert "inputs_and_outputs/InSAR_dataset_small_baseline_stage7diag" in README
     assert "inputs_and_outputs/InSAR_dataset_small_baseline_stage7" in README
+    assert "https://huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test/tree/main" in README
     assert "optional repo assets" in README
 
 
@@ -33,12 +35,25 @@ def test_readme_and_makefile_expose_the_same_local_entrypoints() -> None:
     assert "make test" in README
     assert "make build" in README
     assert "make twine-check" in README
+    assert "make fetch-insar-dataset" in README
+    assert "make import-insar-dataset" in README
     assert "make audit" in README
+    assert "make native-conda-env-check" in README
+    assert "make native-conda-check" in README
+    assert "make native-conda-kernel-check" in README
+    assert "make native-conda-step-validate" in README
+    assert "make native-conda-audit-hf" in README
+    assert "make native-conda-stage6-fixture" in README
+    assert "make native-conda-audit" in README
+    assert "make native-conda-verify" in README
     assert "make parity-loop" in README
     assert "make verify" in README
     assert "make benchmark" in README
 
-    assert ".PHONY: setup test test-impl build twine-check audit verify benchmark parity-loop" in MAKEFILE
+    assert (
+        ".PHONY: setup test test-impl build twine-check fetch-insar-dataset import-insar-dataset audit native-conda-env-check native-conda-check "
+        "native-conda-kernel-check native-conda-step-validate native-conda-audit-hf native-conda-stage6-fixture native-conda-audit native-conda-verify verify benchmark parity-loop"
+    ) in MAKEFILE
     assert "PARITY_ENV = OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=." in MAKEFILE
     assert (
         "AUDIT_DATASETS = inputs_and_outputs/InSAR_dataset_test_stage8diag "
@@ -47,6 +62,13 @@ def test_readme_and_makefile_expose_the_same_local_entrypoints() -> None:
         "inputs_and_outputs/InSAR_dataset_small_baseline_stage7"
     ) in MAKEFILE
     assert "AUDIT_OUTPUT = inputs_and_outputs/validation_runs/latest_audit.json" in MAKEFILE
+    assert "HF_DATASET_REPO = mdelgadoblasco/InSAR_dataset_test" in MAKEFILE
+    assert "HF_DATASET_DEST = inputs_and_outputs/InSAR_dataset_test" in MAKEFILE
+    assert "HF_DATASET_ARCHIVE =" in MAKEFILE
+    assert "HF_PYTHON ?= python" in MAKEFILE
+    assert "HF_NATIVE_AUDIT_OUTPUT = inputs_and_outputs/validation_runs/latest_native_hf_audit.json" in MAKEFILE
+    assert "NATIVE_CONFIG = configs/native-kernels.yaml" in MAKEFILE
+    assert "NATIVE_AUDIT_OUTPUT = inputs_and_outputs/validation_runs/latest_native_conda_audit.json" in MAKEFILE
     assert "VERIFY_RUN = inputs_and_outputs/RUN_FULL_GATE_1e10" in MAKEFILE
     assert "VERIFY_GOLDEN = inputs_and_outputs/InSAR_dataset_test" in MAKEFILE
     assert "BENCHMARK_DATASET = inputs_and_outputs/InSAR_dataset_test_stage8diag" in MAKEFILE
@@ -54,7 +76,24 @@ def test_readme_and_makefile_expose_the_same_local_entrypoints() -> None:
     assert "uv run pytest -q" in MAKEFILE
     assert "uv run --with build python -m build --sdist --wheel" in MAKEFILE
     assert "uv run --with twine python -m twine check dist/*" in MAKEFILE
+    assert (
+        "$(HF_PYTHON) scripts/download_hf_dataset.py --backend huggingface "
+        "--repo $(HF_DATASET_REPO) --destination $(HF_DATASET_DEST)"
+    ) in MAKEFILE
+    assert 'Incomplete Hugging Face dataset: $(HF_DATASET_DEST). Run: make fetch-insar-dataset' in MAKEFILE
+    assert "Incomplete required dataset: $$dataset. Expected patch.list or PATCH_1" in MAKEFILE
+    assert "Incomplete run dataset: $(VERIFY_RUN). Expected patch.list or PATCH_1" in MAKEFILE
+    assert "Incomplete golden dataset: $(VERIFY_GOLDEN). Expected patch.list or PATCH_1" in MAKEFILE
+    assert "huggingface_hub" in ENVIRONMENT
+    assert 'python scripts/import_dataset_archive.py --archive "$(HF_DATASET_ARCHIVE)" --destination "$(HF_DATASET_DEST)" --overwrite' in MAKEFILE
     assert "uv run python scripts/validate_audit.py" in MAKEFILE
+    assert "$(CONDA) run -n pystamps-rust python -c \"import huggingface_hub; print('huggingface_hub', huggingface_hub.__version__)\"" in MAKEFILE
+    assert "$(CONDA) run -n pystamps-rust cargo check" in MAKEFILE
+    assert "$(CONDA) run -n pystamps-rust python -m pystamps.cli describe-backends" in MAKEFILE
+    assert "$(CONDA) run -n pystamps-rust python scripts/validate_audit.py" in MAKEFILE
+    assert "--config $(NATIVE_CONFIG)" in MAKEFILE
+    assert "--datasets $(HF_DATASET_DEST)" in MAKEFILE
+    assert "--allow-subset" in MAKEFILE
     assert "uv run python scripts/parity_bug_loop.py" in MAKEFILE
     assert "--datasets $(AUDIT_DATASETS)" in MAKEFILE
     assert "--audit-output $(AUDIT_OUTPUT)" in MAKEFILE

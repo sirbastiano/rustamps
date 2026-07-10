@@ -30,6 +30,7 @@ def test_stage8_mean_velocity_payload_uses_degree_to_radian_weights(
         "n_ifg": np.asarray(3.0),
         "master_ix": np.asarray(2.0),
         "day": np.asarray([1.0, 3.0, 7.0], dtype=np.float64),
+        "xy": np.asarray([[1.0, 0.0, 0.0], [2.0, 1.0, 0.0]], dtype=np.float64),
     }
     captured: dict[str, np.ndarray] = {}
 
@@ -45,17 +46,19 @@ def test_stage8_mean_velocity_payload_uses_degree_to_radian_weights(
     def fake_weighted_lstsq(
         design: np.ndarray,
         values: np.ndarray,
-        cov: np.ndarray | None = None,
+        covariance: np.ndarray | None = None,
+        backend: str = "auto",
     ) -> np.ndarray:
         captured["design"] = design
         captured["values"] = values
-        captured["cov"] = np.asarray(cov)
+        captured["cov"] = np.asarray(covariance)
+        captured["backend"] = np.asarray([backend])
         return np.zeros((2, 2), dtype=np.float64)
 
     monkeypatch.setattr(ported, "_read_mat_cached", fake_read_mat_cached)
     monkeypatch.setattr(ported, "_deramp_unwrapped_phase", lambda ps, ph: (ph, np.zeros_like(ph)))
     monkeypatch.setattr(ported, "_select_reference_ps", lambda ps, parms: np.asarray([], dtype=np.int64))
-    monkeypatch.setattr(ported, "_weighted_lstsq_shared_design", fake_weighted_lstsq)
+    monkeypatch.setattr(ported, "run_stage8_weighted_lstsq_kernel", fake_weighted_lstsq)
 
     payload = ported._stage8_mean_velocity_payload(
         dataset_root,
@@ -68,6 +71,7 @@ def test_stage8_mean_velocity_payload_uses_degree_to_radian_weights(
     expected_cov = np.diag((np.asarray([18.0, 36.0], dtype=np.float64) * np.pi / 180.0) ** 2)
     np.testing.assert_allclose(captured["cov"], expected_cov, atol=0.0, rtol=0.0)
     np.testing.assert_allclose(captured["design"], np.asarray([[1.0, -2.0], [1.0, 4.0]], dtype=np.float64))
+    assert captured["backend"][0] == "python"
     assert payload["m"].shape == (2, 2)
 
 

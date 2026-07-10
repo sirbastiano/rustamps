@@ -4,7 +4,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-from scipy import signal
 
 from pystamps.pipeline import ported
 
@@ -52,25 +51,40 @@ def test_stage2_random_phase_chunks_match_full_matrix_layout() -> None:
     assert any(not np.array_equal(observed_chunk, naive_chunk) for observed_chunk, naive_chunk in zip(observed, naive, strict=True))
 
 
-def test_matlab_interp_matches_stage2_firwin_path() -> None:
-    x = np.linspace(0.0, 1.0, 8, dtype=np.float64)
+def test_matlab_interp_filter_matches_intfilt_reference_coefficients() -> None:
+    coeff = ported._matlab_interp_filter(2, n=4, cutoff=0.5)
+
+    expected = np.array(
+        [
+            0.0,
+            -0.0068,
+            0.0,
+            0.0395,
+            0.0,
+            -0.1427,
+            0.0,
+            0.6098,
+            1.0,
+            0.6098,
+            0.0,
+            -0.1427,
+            0.0,
+            0.0395,
+            0.0,
+            -0.0068,
+            0.0,
+        ],
+        dtype=np.float64,
+    )
+
+    np.testing.assert_allclose(coeff, expected, rtol=0.0, atol=7e-5)
+
+
+def test_matlab_interp_preserves_original_samples() -> None:
+    x = np.array([0.5, -1.25, 0.0, 3.0, 2.25], dtype=np.float64)
     observed = ported._matlab_interp(x, 10)
 
-    q = 10
-    n = 4
-    coeff = signal.firwin(
-        2 * q * n + 2,
-        0.5 / q,
-        window="hamming",
-        scale=True,
-        fs=2.0,
-    ).astype(np.float64)
-    y = np.zeros(x.size * q + q * n + 1, dtype=np.float64)
-    y[: x.size * q : q] = x
-    y = q * signal.lfilter(coeff, [1.0], y)
-    expected = y[q * n + 1 :]
-
-    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(observed[::10], x, rtol=0.0, atol=1e-12)
 
 
 def test_stage2_psquare_weighting_uses_matlab_rounding_for_bin_lookup() -> None:
