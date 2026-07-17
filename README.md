@@ -44,7 +44,7 @@ them.
 | **Verifiable** | Strict and tolerance-aware comparison against golden datasets |
 | **Portable** | 64-bit Linux, macOS, and Windows on x86_64 and ARM64 |
 
-![Rustamps processing flow](docs/assets/rustamps-workflow.svg)
+![Rustamps workflow at a glance](docs/assets/rustamps-workflow.png)
 
 ## Download
 
