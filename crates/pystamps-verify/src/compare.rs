@@ -75,7 +75,7 @@ pub fn verify_paths_with_scope(
     for relative in artifacts {
         let golden_path = golden.join(&relative);
         let run_path = run.join(&relative);
-        let display = relative.to_string_lossy();
+        let display = report_path(&relative);
         if !run_path.exists() {
             report
                 .comparisons
@@ -96,6 +96,13 @@ fn read(path: &Path) -> Result<pystamps_io::MatFile, VerifyError> {
         path: path.to_path_buf(),
         source,
     })
+}
+
+fn report_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn failure(path: &str, message: &str) -> FileComparison {
