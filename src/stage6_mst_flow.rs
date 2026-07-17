@@ -243,27 +243,28 @@ pub(crate) fn shortest_path_initial_flows(
         }
     }
 
-    let mut children = vec![Vec::<(usize, Action)>::new(); node_count];
-    for (node, link) in parent.into_iter().enumerate() {
-        if let Some(link) = link {
-            children[link.from].push((node, link.action));
+    let mut child_count = vec![0_u32; node_count];
+    for link in parent.iter().flatten() {
+        child_count[link.from] += 1;
+    }
+    let mut pending = Vec::new();
+    for node in 0..node_count {
+        if parent[node].is_some() && child_count[node] == 0 {
+            pending.push(node);
         }
     }
-    fn discharge(
-        node: usize,
-        charge: &[i32],
-        children: &[Vec<(usize, Action)>],
-        rowflow: &mut [i32],
-        colflow: &mut [i32],
-    ) -> i32 {
-        let mut total = charge[node];
-        for &(child, action) in &children[node] {
-            let child_charge = discharge(child, charge, children, rowflow, colflow);
-            apply_action(rowflow, colflow, action, -child_charge);
-            total += child_charge;
+    let mut subtree_charge = charge;
+    while let Some(node) = pending.pop() {
+        let Some(link) = parent[node] else {
+            continue;
+        };
+        let amount = subtree_charge[node];
+        apply_action(&mut rowflow, &mut colflow, link.action, -amount);
+        subtree_charge[link.from] += amount;
+        child_count[link.from] -= 1;
+        if link.from != root && child_count[link.from] == 0 {
+            pending.push(link.from);
         }
-        total
     }
-    discharge(root, &charge, &children, &mut rowflow, &mut colflow);
     (rowflow, colflow)
 }

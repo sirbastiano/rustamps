@@ -1,110 +1,144 @@
-# Release Process
+# Native release process
 
-`pystamps` releases are manual and tag-driven. This standalone repo uses direct Python packaging commands rather than a tracked `Makefile`.
+`pystamps` is released as a Rust binary. Python wheels, sdists, PyPI, PyO3,
+SNAPHU, Triangle, and system HDF5 are outside the production release surface.
+The retained Python tree is a source-only scientific oracle.
 
 ## Prerequisites
 
-- Python 3.12+ and `pip`
-- Rust toolchain (`cargo`, `rustc`) available on any machine that builds source or wheel artifacts
-- PyPI credentials available to `twine`
-- a clean Git worktree
-- local access to the validation datasets required by the parity audit
-- the maintained run-copy seed `inputs_and_outputs/RUN_FULL_GATE_1e10` for the `InSAR_dataset_test` refresh
-- Docker available on the Linux release host for manylinux wheel builds via `cibuildwheel`
+- Rust 1.89 or newer;
+- a clean worktree at the candidate revision;
+- the retained validation datasets for the scientific gate;
+- target toolchains for every platform being released.
 
-## Release Steps
+## Candidate gate
 
-1. Sync the maintainer environment:
+Run the complete Cargo gate from the repository root:
 
-   ```bash
-   pip install -e .[dev]
-   ```
+```bash
+cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo build --release --locked
+cargo tree -p pystamps -e normal,build
+```
 
-2. Run the test gate:
+The dependency tree must not contain `pyo3`, `numpy`, `hdf5-sys`, a Python
+runtime, or wrappers for SNAPHU or Triangle. On macOS, `otool -L
+target/release/pystamps` should list only operating-system libraries. Use the
+corresponding loader inspection on Linux or Windows.
 
-   ```bash
-   uv run pytest -q
-   ```
+The `Portable Rust installation` workflow must also pass its GNU/musl Linux,
+Intel/ARM macOS, and x64/ARM Windows rows. Each row uses Rust 1.89, runs the
+workspace tests, builds a release binary, installs from the checkout, and
+launches the installed command.
 
-   Fresh-clone release prep stops here if the required local parity datasets are unavailable. Do not substitute a Makefile target, a hidden CI workflow, or a one-dataset audit command.
+Smoke-test the installed command, not only the checkout binary. On POSIX:
 
-3. Run the strict parity gate:
+```bash
+cargo install --path . --locked --root /tmp/pystamps-release
+/tmp/pystamps-release/bin/pystamps --help
+/tmp/pystamps-release/bin/pystamps describe-backends
+```
 
-   ```bash
-    OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-     uv run python scripts/validate_audit.py \
-       --datasets \
-         inputs_and_outputs/InSAR_dataset_test_stage8diag \
-         inputs_and_outputs/InSAR_dataset_test \
-         inputs_and_outputs/InSAR_dataset_small_baseline_stage7diag \
-         inputs_and_outputs/InSAR_dataset_small_baseline_stage7 \
-       --output inputs_and_outputs/validation_runs/latest_audit.json
-   ```
+On Windows PowerShell:
 
-   This command must finish unattended. It now creates fresh run copies under `inputs_and_outputs/validation_runs/<timestamp>/` before the parity validation step. See [Verification](verification.html) for the exact run-copy and compare flow.
+```powershell
+$root = Join-Path $env:TEMP 'pystamps-release'
+cargo install --path . --locked --root $root
+$binary = Join-Path $root 'bin\pystamps.exe'
+& $binary --help
+& $binary describe-backends
+```
 
-4. Resolve the required run copy from the fresh audit artifact and run verification as described in the dedicated guide:
+## Scientific gate
 
-   See [Verification](verification.html).
+Create a fresh writable copy of the retained input, execute the native stage
+range being released, and compare it with the golden tree:
 
-5. Create and push a release tag using the version form `vX.Y.Z`.
+```bash
+cp -a GOLDEN_DATASET RUN_DATASET
+cargo run --release --locked -- run \
+  --dataset RUN_DATASET --start-step 1 --end-step 8
+cargo run --release --locked -- verify \
+  --run RUN_DATASET --golden GOLDEN_DATASET
+```
 
-6. Build the release artifacts from the tagged commit:
+The example uses POSIX copy syntax. On Windows, create the run copy with
+`Copy-Item -Recurse GOLDEN_DATASET RUN_DATASET` before running the same Cargo
+commands.
 
-   ```bash
-   uv run --with build python -m build --sdist
-   ```
+Do not substitute a cache-only rerun. Long Stage 6 validation may be resumed
+from its fingerprinted per-interferogram checkpoints, but the final comparison
+must cover a completed fresh-data run. Record tolerances, elapsed time, peak
+memory, and any accepted scientific deviation with the candidate revision.
 
-7. Build Linux wheels on the Linux host:
+The non-installable historical oracle can provide an additional comparison:
 
-   ```bash
-   uv run --with cibuildwheel python -m cibuildwheel --platform linux --output-dir dist
-   ```
+```bash
+make oracle-setup
+make oracle-test
+make oracle-audit
+```
 
-8. Build macOS wheels on the macOS host:
+These commands are development evidence only; their Python environment is not
+bundled with or required by the release binary.
 
-   ```bash
-   uv run --with cibuildwheel python -m cibuildwheel --platform macos --output-dir dist
-   ```
+## Publish
 
-9. Build Windows wheels on the Windows host:
+### Conda package
 
-   ```bash
-   uv run --with cibuildwheel python -m cibuildwheel --platform windows --output-dir dist
-   ```
+The Conda distribution is `pystamps` 0.2.0 and contains only the compiled
+native CLI plus package and license metadata. It must not contain or depend on
+Python, a system HDF5 library, SNAPHU, the oracle tree, or another scientific
+executable. Conda Linux artifacts target glibc and are not interchangeable with
+the Cargo-built musl binaries. Linux packages require glibc 2.17 or newer,
+macOS packages require macOS 11 or newer, and the package is not `noarch`.
 
-10. Validate the gathered artifacts:
+Build and validate exactly one package for each supported Conda subdirectory:
+`linux-64`, `linux-aarch64`, `osx-64`, `osx-arm64`, `win-64`, and `win-arm64`.
+For every artifact, create a clean temporary environment and run:
 
-   ```bash
-   uv run --with twine python -m twine check dist/*
-   ```
+```bash
+conda create -n pystamps-package-test -c LOCAL_CHANNEL -c conda-forge pystamps=0.2.0
+conda run -n pystamps-package-test pystamps --version
+conda run -n pystamps-package-test pystamps --help
+conda run -n pystamps-package-test pystamps describe-backends
+```
 
-11. Upload to TestPyPI for rehearsal when needed:
+Assert that `describe-backends` reports an empty
+`runtime_external_dependencies` list and that the artifact architecture and
+Conda subdirectory match. The Cargo, recipe, source-tag, and installed-command
+versions must agree. Rebuilding 0.2.0 requires incrementing the Conda build
+number; do not overwrite an existing artifact.
 
-   ```bash
-   uv run --with twine python -m twine upload --repository testpypi dist/*
-   ```
+No Conda package has been uploaded yet. The first authorized upload publishes
+the exact locally and natively tested artifacts to `sirbastiano/label/dev`.
+Windows ARM64 remains experimental on `dev` until its package passes native
+ARM64 CI. Before adding `ANACONDA_API_KEY`, configure the GitHub `anaconda-dev`
+environment with a required reviewer, prevent self-review, and restrict its
+deployment rule to release tags. Protect `v*` tags from update or deletion with
+a repository ruleset, and store the key as an environment secret rather than a
+repository secret. Verify the channel with a clean installation:
 
-12. Upload the final artifacts to PyPI:
+```bash
+conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
+conda run -n pystamps pystamps describe-backends
+```
 
-   ```bash
-   uv run --with twine python -m twine upload dist/*
-   ```
+Promotion to the `main` label is a separate explicit action. Promote the exact
+tested filenames without rebuilding them; never expose publishing credentials
+to pull-request or ordinary branch jobs.
 
-## Release Requirements
+### Standalone archives
 
-- `pytest` must pass.
-- `latest_audit.json` must report no failed parity workflows.
-- The explicit verification command must pass using the `run_root` recorded in `latest_audit.json` (documented in verification).
-- `python -m build --sdist` must emit the release sdist.
-- `cibuildwheel` must emit the expected platform wheels for Linux, macOS, and Windows.
-- `twine check` must pass on every file gathered in `dist/`.
-- Any interrupted audit, manual restart, or stale run-copy reuse leaves the release gate closed.
+1. Tag the exact gated revision as `vX.Y.Z`.
+2. Build each supported target from that tag with `cargo build --release
+   --locked --target TARGET`.
+3. Archive the `pystamps` executable with `LICENSE`, `README.md`, and
+   `docs/native_runtime.md`.
+4. Verify the archive checksum and rerun `pystamps --help` after extraction.
+5. Publish checksums beside the platform archives.
 
-## Distribution Scope
-
-- The wheel set contains the `pystamps` Python package, the compiled Rust stage-2 native extension, and package metadata.
-- The sdist contains the tracked Python source tree, Rust sources, and release docs needed to rebuild those wheels.
-- Release artifacts do not include `inputs_and_outputs/`, `tmp/`, or the vendored `StaMPS/` tree.
-- Generated directories such as `dist/` and `build/` are excluded from the source distribution so repeated build validation does not recurse on prior outputs.
-- External binaries such as `triangle` and legacy/fallback `snaphu` remain user-managed prerequisites when those execution paths are selected.
+A release remains blocked by a failed Cargo check, an incomplete or stale
+scientific run, an unexpected dynamic library, or an undocumented verifier
+failure.

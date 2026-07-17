@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from pystamps.pipeline import ported
 from pystamps.pipeline.ported import (
@@ -438,7 +439,7 @@ def test_stage7_calc_scla_deramps_before_centering(monkeypatch: object, tmp_path
     np.testing.assert_allclose(captured["ph_mean_v"], expected_mean_v, atol=0.0, rtol=0.0)
 
 
-def test_stage7_calc_scla_small_baseline_uses_bp2_matrix_as_is(monkeypatch: object, tmp_path: Path) -> None:
+def test_stage7_calc_scla_rejects_small_baseline_before_writing(monkeypatch: object, tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     dataset_root.mkdir()
     for filename in ("phuw2.mat", "ps2.mat", "bp2.mat", "ifgstd2.mat", "parms.mat"):
@@ -539,20 +540,13 @@ def test_stage7_calc_scla_small_baseline_uses_bp2_matrix_as_is(monkeypatch: obje
     monkeypatch.setattr(ported, "_cache_mat_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(ported, "stage6_unwrap", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("stage6_unwrap should not run")))
 
-    result = ported.stage7_calc_scla(dataset_root, backend="native", chunk_ps=0, enable_mat_cache=True, io_workers=0)
+    with pytest.raises(ported.PortedStageError, match="legacy three-pass workflow"):
+        ported.stage7_calc_scla(dataset_root, backend="native", chunk_ps=0, enable_mat_cache=True, io_workers=0)
 
-    assert result == "Stage 7 estimated SCLA for 2 PS"
-    np.testing.assert_array_equal(
-        captured["bperp_mat"],
-        np.asarray([[11.0, 12.0, 13.0], [21.0, 22.0, 23.0]], dtype=np.float64),
-    )
-    np.testing.assert_array_equal(captured["unwrap_ix"], np.asarray([0, 1, 2], dtype=np.int64))
-    np.testing.assert_array_equal(captured["solve_ix"], np.asarray([0, 1, 2], dtype=np.int64))
-    np.testing.assert_array_equal(captured["master_ix"], np.asarray(2))
-    assert set(written) == {"scla2.mat", "scla_smooth2.mat"}
+    assert written == {}
 
 
-def test_stage7_calc_scla_small_baseline_rebuilds_bp2_from_full_ps2_bperp_when_missing(
+def test_stage7_calc_scla_rejects_small_baseline_before_rebuilding_missing_bp2(
     monkeypatch: object,
     tmp_path: Path,
 ) -> None:
@@ -641,20 +635,15 @@ def test_stage7_calc_scla_small_baseline_rebuilds_bp2_from_full_ps2_bperp_when_m
     monkeypatch.setattr(ported, "_cache_mat_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(ported, "stage6_unwrap", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("stage6_unwrap should not run")))
 
-    result = ported.stage7_calc_scla(dataset_root, backend="native", chunk_ps=0, enable_mat_cache=True, io_workers=0)
+    with pytest.raises(ported.PortedStageError, match="legacy three-pass workflow"):
+        ported.stage7_calc_scla(dataset_root, backend="native", chunk_ps=0, enable_mat_cache=True, io_workers=0)
 
-    assert result == "Stage 7 estimated SCLA for 2 PS"
-    np.testing.assert_array_equal(
-        captured["bperp_mat"],
-        np.asarray([[31.0, 32.0, 33.0], [31.0, 32.0, 33.0]], dtype=np.float64),
-    )
-    np.testing.assert_array_equal(captured["unwrap_ix"], np.asarray([0, 1, 2], dtype=np.int64))
-    np.testing.assert_array_equal(captured["solve_ix"], np.asarray([0, 1, 2], dtype=np.int64))
-    np.testing.assert_array_equal(captured["master_ix"], np.asarray(2))
-    assert set(written) == {"bp2.mat", "scla2.mat", "scla_smooth2.mat"}
+    assert written == {}
 
 
-def test_stage7_calc_scla_writes_smoothed_scla_payload(monkeypatch: object, tmp_path: Path) -> None:
+def test_stage7_calc_scla_uses_no_deramp_default_and_writes_smoothed_payload(
+    monkeypatch: object, tmp_path: Path
+) -> None:
     dataset_root = tmp_path / "dataset"
     dataset_root.mkdir()
     for filename in ("phuw2.mat", "ps2.mat", "bp2.mat", "ifgstd2.mat", "parms.mat"):
@@ -702,7 +691,6 @@ def test_stage7_calc_scla_writes_smoothed_scla_payload(monkeypatch: object, tmp_
                 "small_baseline_flag": "n",
                 "drop_ifg_index": np.asarray([], dtype=np.int64),
                 "scla_drop_index": np.asarray([], dtype=np.int64),
-                "scla_deramp": "n",
             }
         raise AssertionError(f"unexpected cached read: {path}")
 
@@ -725,6 +713,11 @@ def test_stage7_calc_scla_writes_smoothed_scla_payload(monkeypatch: object, tmp_
     monkeypatch.setattr(ported, "_select_reference_ps", lambda *args, **kwargs: np.asarray([], dtype=np.int64))
     monkeypatch.setattr(ported, "_resolve_scla_smooth_edges", lambda *args, **kwargs: np.asarray([[0, 1], [1, 2], [0, 2]], dtype=np.int64))
     monkeypatch.setattr(ported, "run_stage7_scla_kernel", fake_run_stage7_scla_kernel)
+    monkeypatch.setattr(
+        ported,
+        "run_stage7_deramp_unwrapped_phase_kernel",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy default must not deramp")),
+    )
     monkeypatch.setattr(ported, "write_mat", fake_write_mat)
     monkeypatch.setattr(ported, "_cache_mat_payload", lambda *args, **kwargs: None)
     monkeypatch.setattr(ported, "stage6_unwrap", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("stage6_unwrap should not run")))
@@ -733,6 +726,7 @@ def test_stage7_calc_scla_writes_smoothed_scla_payload(monkeypatch: object, tmp_
 
     assert result == "Stage 7 estimated SCLA for 3 PS"
     assert set(written) == {"scla2.mat", "scla_smooth2.mat"}
+    assert np.asarray(written["scla2.mat"]["ph_ramp"]).shape == (0, 0)
     smooth = written["scla_smooth2.mat"]
     np.testing.assert_allclose(smooth["K_ps_uw"], np.asarray([[2.0], [2.0], [2.0]], dtype=np.float32), atol=0.0, rtol=0.0)
     np.testing.assert_allclose(smooth["C_ps_uw"], np.asarray([[2.0], [2.0], [2.0]], dtype=np.float32), atol=0.0, rtol=0.0)

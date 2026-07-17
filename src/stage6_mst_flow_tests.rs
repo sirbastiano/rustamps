@@ -70,3 +70,21 @@ fn shortest_path_initial_flows_matches_simple_adjacent_residue_contract() {
     assert_eq!(rowflow, vec![0, 1, 0]);
     assert_eq!(colflow, vec![0, 0, 0, 0]);
 }
+
+#[test]
+fn mst_initial_flows_discharges_a_deep_tree_iteratively() {
+    let nrow = 2;
+    let ncol = 1_000;
+    let horizontal = vec![Some(edge(1)); nrow * (ncol - 1)];
+    let mut vertical = vec![Some(edge(32000)); (nrow - 1) * ncol];
+    vertical[0] = Some(edge(1));
+    vertical[ncol - 1] = Some(edge(1));
+    let mut residue = vec![0; ncol - 1];
+    residue[0] = 1;
+    residue[ncol - 2] = -1;
+
+    let (rowflow, colflow) = mst_initial_flows(&residue, &horizontal, &vertical, nrow, ncol);
+
+    assert!(rowflow[1..ncol - 1].iter().all(|flow| *flow == 1));
+    assert!(colflow.iter().all(|flow| *flow == 0));
+}

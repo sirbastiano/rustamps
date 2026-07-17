@@ -326,7 +326,7 @@ def _install_fake_stage78_native_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[list[tuple[object, ...]], object]:
     calls: list[tuple[object, ...]] = []
-    monkeypatch.setattr(accel.os, "cpu_count", lambda: 6)
+    monkeypatch.setattr(accel, "cpu_budget", lambda: 6)
 
     class _FakeNative:
         def stage4_edge_stats(

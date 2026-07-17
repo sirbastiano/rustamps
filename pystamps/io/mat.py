@@ -52,7 +52,7 @@ def read_mat(path: str | Path) -> dict[str, Any]:
             import mat73  # type: ignore
 
             payload = mat73.loadmat(str(mat_path))
-            if isinstance(payload, dict):
+            if isinstance(payload, dict) and all(value is not None for value in payload.values()):
                 return payload
         except Exception:
             pass

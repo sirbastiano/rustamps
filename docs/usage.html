@@ -3,160 +3,77 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Usage - pySTAMPS Docs</title>
+  <title>Native usage - pySTAMPS</title>
   <link rel="stylesheet" href="assets/styles.css" />
-  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS Docs</h1></div>
-    <small>Usage Guides</small>
-    <nav>
-      <div class="nav-group"><h2>Guide</h2><ul class="nav-list"><li><a href="index.html">Introduction</a></li><li><a href="pipeline-science-guide.html">Pipeline Guide</a></li><li><a href="getting-started.html">Getting Started</a></li><li><a href="installation.html">Installation</a></li><li><a href="quickstart.html">Quick Start</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="configuration.html">Configuration</a></li><li><a href="usage.html">Usage</a></li><li><a href="testing.html">Testing</a></li><li><a href="verification.html">Verification</a></li><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
-      <div class="nav-group"><h2>API</h2><ul class="nav-list"><li><a href="api/pystamps.html">Package</a></li><li><a href="api/configuration.html">config</a></li><li><a href="api/cli.html">cli</a></li><li><a href="api/status.html">status</a></li><li><a href="api/verify.html">verify</a></li><li><a href="api/parity_contract.html">parity_contract</a></li><li><a href="api/io_dataset.html">io.dataset</a></li><li><a href="api/io_mat.html">io.mat</a></li><li><a href="api/runtime.html">runtime</a></li><li><a href="api/kernels.html">kernels</a></li><li><a href="api/pipeline_types.html">pipeline.types</a></li><li><a href="api/pipeline_stages.html">pipeline.stages</a></li><li><a href="api/pipeline_ported.html">pipeline.ported</a></li><li><a href="api/compat_legacy.html">compat.legacy</a></li></ul></div>
-    </nav>
+    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <small>Standalone Rust runtime</small>
+    <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
+      <li><a href="index.html">Introduction</a></li>
+      <li><a href="installation.html">Installation</a></li>
+      <li><a href="quickstart.html">Quick start</a></li>
+      <li><a href="configuration.html">Configuration</a></li>
+      <li><a href="usage.html">Usage</a></li>
+      <li><a href="pipeline-science-guide.html">Science guide</a></li>
+    </ul></div></nav>
   </aside>
   <main class="content">
     <div class="breadcrumb">Home / Usage</div>
-    <h1>Usage Guides</h1>
-    <p>For the science context behind these commands, read <a href="pipeline-science-guide.html">Pipeline Guide</a>.</p>
+    <h1>Native command workflows</h1>
 
     <section class="card">
-      <h2>Common workflows</h2>
-      <ol>
-        <li>Discover stage coverage:</li>
-      </ol>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps status --dataset PATH</code></pre>
-      <ol start="2">
-        <li>Dry-run selected stages:</li>
-      </ol>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps run --dataset PATH --start-step 1 --end-step 4 --dry-run</code></pre>
-      <ol start="3">
-        <li>Execute stages with tuned worker settings:</li>
-      </ol>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps run --dataset PATH --start-step 1 --end-step 8 --io-workers 12 --cpu-workers 4</code></pre>
+      <h2>Inspect inputs and state</h2>
+      <pre><code class="language-bash">pystamps describe-backends
+pystamps describe-inputs --stage all
+pystamps status --dataset DATASET</code></pre>
+      <p>These commands are read-only. <span class="code-inline">describe-backends</span> reports the native runtime boundary.</p>
     </section>
 
     <section class="card">
-      <h2>Advanced usage</h2>
-      <h3>Strict reference replay</h3>
-      <pre><button class="copy-btn">Copy</button><code class="language-yaml">compat:
-  strict_reference: true
-  reference_root: /path/to/reference_dataset
-</code></pre>
-      <p>This causes stage execution to copy expected artifacts from reference paths before running stage logic.</p>
-      <h3>Backend selection</h3>
+      <h2>Plan, run, and resume</h2>
+      <pre><code class="language-bash">pystamps run --dataset DATASET --start-step 1 --end-step 8 --dry-run
+pystamps run --dataset DATASET --start-step 1 --end-step 8
+pystamps run --dataset DATASET --start-step 0 --end-step 8</code></pre>
       <ul>
-        <li><span class="code-inline">runtime.backend=auto</span>: strategy by stage.</li>
-        <li><span class="code-inline">runtime.backend=threads</span>: IO-style execution path.</li>
-        <li><span class="code-inline">runtime.backend=processes</span>: CPU process execution for CPU stages.</li>
-        <li><span class="code-inline">runtime.backend=gpu</span>: force GPU-capable kernels when available.</li>
-      </ul>
-      <h3>Optimized kernel config</h3>
-      <pre><button class="copy-btn">Copy</button><code class="language-yaml">runtime:
-  backend: native
-  stage2_kernel_backend: native
-  stage2_native_threads: 0
-  kernel_backend_overrides:
-    stage2_clap_filter_kernel: native
-    stage2_grid_accumulate: native
-    stage2_grid_indices: native
-    stage2_histogram: native
-    stage2_normalize_complex: native
-    stage2_normalize_phase_matrix: native
-    stage2_ph_weight_block: native
-    stage2_topofit: native
-    stage2_topofit_coh_row_invariant: native
-    stage2_topofit_row_invariant: native
-    stage3_clap_filt_grid: native
-    stage3_clap_filt_grid_stack: native
-    stage3_clap_filt_patch: native
-    stage3_clap_filt_patch_stack: native
-    stage3_coh_threshold: native
-    stage3_select_ifg_index: native
-    stage3_wrap_filt: native
-    stage3_wrap_filt_global: native
-    stage4_adjacent_component_keep: native
-    stage4_duplicate_keep: native
-    stage4_edge_stats: native
-    stage4_phase_correction: native
-    stage4_weed_ifg_index: native
-    stage5_duplicate_keep: native
-    stage5_format_merged_rc2: native
-    stage5_ifg_std: native
-    stage5_patch_keep_mask: native
-    stage5_rc2_correction: native
-    stage6_estimate_la_error: native
-    stage6_extract_grid_values: native
-    stage6_grid_accumulate: native
-    stage6_prepare_cost_offsets: native
-    stage6_ps_grid_indices: native
-    stage6_reconstruct_ps_phase: native
-    stage6_select_ifgw: native
-    stage6_single_master_ifg_geometry: native
-    stage6_smooth_3d_full_single_master: native
-    stage6_unwrap_grid: native
-    stage6_unwrap_ifg_sets: native
-    stage7_center_to_reference: native
-    stage7_deramp_unwrapped_phase: native
-    stage7_mean_velocity_fit: native
-    stage7_scla: native
-    stage7_scla_smooth: native
-    stage8_edge_noise: native
-    stage8_weighted_lstsq: native
-    weighted_affine_fit: native
-    weighted_slope_fit: native
-  io_workers: 1
-  cpu_workers: 0
-  stage7_chunk_ps: 100000
-  stage8_chunk_edges: 200000</code></pre>
-      <p><span class="code-inline">backend: native</span> selects compiled Rust/CPU kernels and schedules them in-process. The validation profile uses one patch worker to avoid concurrent large MAT-file reads.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config configs/native-kernels.yaml run --dataset PATH --start-step 2 --end-step 8</code></pre>
-      <p>Use <span class="code-inline">python</span> for reference kernels, <span class="code-inline">native</span> for Rust/CPU, and <span class="code-inline">cuda</span> where the CUDA provider is registered.</p>
-      <p>Pipeline stages with existing expected artifacts are skipped. Use an incomplete run copy for pipeline execution, or use the benchmark/direct-kernel examples to exercise optimized kernels.</p>
-      <h3>Direct kernel API on repo data</h3>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run python - &lt;&lt;'PY'
-from pathlib import Path
-import numpy as np
-
-from pystamps.io.mat import read_mat
-from pystamps.kernels import run_stage8_edge_noise_kernel
-
-root = Path("/path/to/reference_dataset")
-uw_grid = read_mat(root / "uw_grid.mat")
-uw_interp = read_mat(root / "uw_interp.mat")
-
-uw_ph = np.asarray(uw_grid["ph"][:1000, :8], dtype=np.complex64)
-edges = np.asarray(uw_interp["edgs"], dtype=np.int64)
-node_a = edges[:, 1] - 1
-node_b = edges[:, 2] - 1
-valid = (node_a &gt;= 0) &amp; (node_b &gt;= 0) &amp; (node_a &lt; uw_ph.shape[0]) &amp; (node_b &lt; uw_ph.shape[0])
-
-out = run_stage8_edge_noise_kernel(uw_ph, node_a[valid][:2000], node_b[valid][:2000], backend="native")
-print(out["dph_noise"].shape)
-PY</code></pre>
-    </section>
-
-    <section class="card">
-      <h2>Integration patterns</h2>
-      <ul>
-        <li>Use <span class="code-inline">pystamps run</span> in CI for deterministic execution and artifact replay checks.</li>
-        <li>Use <a href="verification.html">Verification</a> for baseline comparison commands and parity contract checks.</li>
-        <li>Keep long-running runs in a persistent dataset directory and rerun only failed stage ranges.</li>
-        <li>Pair stage-level artifact checks with <span class="code-inline">discover_dataset</span>-style logic from scripts for orchestration.</li>
+        <li>A positive start step recomputes the range and invalidates dependent later artifacts.</li>
+        <li>Start step <span class="code-inline">0</span> resumes from valid completion artifacts.</li>
+        <li><span class="code-inline">--cpu-workers N</span> bounds the native Rayon pool; zero uses the available CPU budget.</li>
+        <li>Stage 6 resumes matching per-interferogram checkpoints and publishes <span class="code-inline">phuw2.mat</span> only when complete.</li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>Performance considerations</h2>
-      <ul>
-        <li>Prefer stage ranges to avoid re-running existing artifacts.</li>
-        <li>Use <span class="code-inline">run --start-step/--end-step</span> to isolate expensive stages.</li>
-        <li><span class="code-inline">enable_mat_stage_cache</span> reduces re-read overhead in merged stages.</li>
-        <li>Stage-7/8 chunk sizes can be tuned in config for memory-pressure control.</li>
-        <li>Use <span class="code-inline">make benchmark</span> or <span class="code-inline">scripts/benchmark_backends.py</span> for repeatable speed evidence.</li>
-      </ul>
+      <h2>Run a controlled stage range</h2>
+      <pre><code class="language-bash">pystamps run --dataset DATASET --start-step 3 --end-step 5
+pystamps run --dataset DATASET --start-step 6 --end-step 8</code></pre>
+      <p>Each stage validates required upstream artifacts. Unsupported compatibility branches fail before publishing substitute results.</p>
+    </section>
+
+    <section class="card">
+      <h2>Apply an explicit native profile</h2>
+      <pre><code class="language-bash">pystamps --config configs/native-kernels.yaml run \
+  --dataset DATASET --start-step 1 --end-step 8
+
+pystamps --config configs/stage6-fast.yaml run \
+  --dataset DATASET --start-step 6 --end-step 8</code></pre>
+      <p>The fast profile coarsens Stage 6 grid spacing but retains converged flow optimization. Compare it scientifically with a strict-grid run before accepting it.</p>
+    </section>
+
+    <section class="card">
+      <h2>Verify a run</h2>
+      <pre><code class="language-bash">pystamps verify --run RUN --golden GOLDEN
+pystamps verify --run RUN --golden GOLDEN --through-stage 6
+pystamps --config CONFIG verify \
+  --run RUN --golden GOLDEN --profile scientific</code></pre>
+      <p>Strict is the default. Scientific mode still enforces structure and configured hard maximum errors.</p>
+    </section>
+
+    <section class="card">
+      <h2>No runtime fallback</h2>
+      <p>All production stages execute in native Rust. Python/CUDA backends, external phase unwrapping, reference replay, and per-kernel backend overrides are rejected rather than silently changing the computation.</p>
     </section>
   </main>
 </div>

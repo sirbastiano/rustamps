@@ -54,6 +54,67 @@ def test_load_config_parses_generic_kernel_backend_overrides(tmp_path: Path) -> 
     }
 
 
+def test_load_config_normalizes_stage6_solver(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "stage6.yaml"
+    cfg_path.write_text("runtime:\n  stage6_solver: external\n", encoding="utf-8")
+
+    assert load_config(cfg_path).runtime.stage6_solver == "snaphu"
+
+    cfg_path.write_text("runtime:\n  stage6_solver: unknown\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="Unsupported stage-6 solver"):
+        load_config(cfg_path)
+
+
+def test_stage1_to_5_parm_defaults_and_local_overrides_match_legacy(tmp_path: Path) -> None:
+    default_dir = tmp_path / "default"
+    default_dir.mkdir()
+
+    defaults = ported._load_parms(default_dir)
+
+    assert defaults.select_method == "DENSITY"
+    assert defaults.percent_rand == 20.0
+    assert defaults.density_rand == 20.0
+    assert defaults.weed_standard_dev == 1.0
+    assert np.isinf(defaults.weed_max_noise)
+    assert defaults.weed_neighbours == "n"
+    assert defaults.weed_time_win == 730.0
+    assert defaults.merge_resample_size == 0.0
+    assert ported._build_stage_options(default_dir).max_topo_err == 20.0
+
+    small_baseline_dir = tmp_path / "small_baseline"
+    small_baseline_dir.mkdir()
+    write_mat(
+        small_baseline_dir / "parms.mat",
+        {"small_baseline_flag": ported._matlab_char_row("y")},
+    )
+    small_baseline = ported._load_parms(small_baseline_dir)
+    assert small_baseline.percent_rand == 1.0
+    assert small_baseline.density_rand == 2.0
+    assert np.isinf(small_baseline.weed_standard_dev)
+    assert small_baseline.merge_resample_size == 100.0
+
+    dataset_root = tmp_path / "dataset"
+    patch_dir = dataset_root / "PATCH_1"
+    patch_dir.mkdir(parents=True)
+    write_mat(
+        dataset_root / "parms.mat",
+        {
+            "select_method": ported._matlab_char_row("PERCENT"),
+            "filter_grid_size": np.asarray(40.0),
+        },
+    )
+    write_mat(
+        patch_dir / "localparms.mat",
+        {
+            "select_method": ported._matlab_char_row("DENSITY"),
+            "filter_grid_size": np.asarray(75.0),
+        },
+    )
+
+    assert ported._load_parms(patch_dir).select_method == "DENSITY"
+    assert ported._build_stage_options(patch_dir).grid_size == 75.0
+
+
 def test_load_config_rejects_non_mapping_kernel_backend_overrides(tmp_path: Path) -> None:
     cfg_path = tmp_path / "kernel-overrides-bad.yaml"
     cfg_path.write_text(
@@ -325,6 +386,113 @@ def test_stage1_load_initial_uses_existing_ps1_metadata_without_in_files(monkeyp
             dtype=np.float32,
         ),
     )
+
+
+def test_stage1_gamma_null_master_and_nan_rows_remain_aligned(monkeypatch, tmp_path: Path) -> None:
+    patch_dir = tmp_path / "PATCH_1"
+    patch_dir.mkdir()
+    for name in (
+        "pscands.1.ij",
+        "pscands.1.ph",
+        "pscands.1.ll",
+        "pscands.1.da",
+        "pscands.1.hgt",
+        "day.1.in",
+        "master_day.1.in",
+        "bperp.1.in",
+        "width.txt",
+        "len.txt",
+    ):
+        (patch_dir / name).touch()
+
+    ij = np.asarray(
+        [[1.0, 10.0, 20.0], [2.0, 30.0, 40.0], [3.0, 50.0, 60.0], [4.0, 70.0, 80.0]],
+        dtype=np.float64,
+    )
+    ph = np.asarray(
+        [
+            [2.0 + 0.0j, 7.0 + 0.0j, 3.0 + 0.0j],
+            [2.0 + 0.0j, 8.0 + 0.0j, np.nan + 0.0j],
+            [2.0 + 0.0j, 9.0 + 0.0j, 3.0 + 0.0j],
+            [4.0 + 0.0j, np.nan + 0.0j, 6.0 + 0.0j],
+        ],
+        dtype=np.complex64,
+    )
+    lonlat = np.asarray(
+        [[12.0, 45.0], [13.0, 46.0], [np.nan, 47.0], [15.0, 48.0]],
+        dtype=np.float32,
+    )
+
+    def fake_load_text_matrix(path: Path, dtype=float) -> np.ndarray:
+        values = {
+            "pscands.1.ij": ij,
+            "day.1.in": np.asarray([20200101, 20200113, 20200125]),
+            "master_day.1.in": np.asarray([20200113]),
+            "bperp.1.in": np.asarray([10.0, 99.0, 30.0]),
+            "pscands.1.da": np.asarray([1.0, 2.0, 3.0, 4.0]),
+        }
+        return np.asarray(values[path.name], dtype=dtype)
+
+    def fake_load_binary(path: Path, kind: str) -> np.ndarray:
+        if path.name == "pscands.1.ll":
+            return lonlat.reshape(-1)
+        if path.name == "pscands.1.hgt":
+            return np.asarray([10.0, 20.0, 30.0, 40.0], dtype=np.float32)
+        raise AssertionError(f"unexpected binary input: {path} ({kind})")
+
+    writes: dict[str, dict[str, object]] = {}
+    monkeypatch.setattr(ported, "_load_text_matrix", fake_load_text_matrix)
+    monkeypatch.setattr(ported, "_load_complex_columns", lambda path, n_rows: ph.copy())
+    monkeypatch.setattr(ported, "_load_binary_float32", fake_load_binary)
+    monkeypatch.setattr(
+        ported,
+        "_local_xy_from_lonlat",
+        lambda values, heading_deg=None: (np.asarray(values, dtype=np.float64), np.zeros(2)),
+    )
+    monkeypatch.setattr(ported, "_quantize_xy_millimeters", lambda xy: np.asarray(xy, dtype=np.float32))
+    monkeypatch.setattr(ported, "_stage1_heading_deg", lambda patch: None)
+    monkeypatch.setattr(ported, "_stage1_geometry", lambda patch, values: None)
+    monkeypatch.setattr(
+        ported,
+        "_build_stage_options",
+        lambda patch: SimpleNamespace(mean_range=830000.0, mean_incidence=0.4),
+    )
+    monkeypatch.setattr(ported, "write_mat", lambda path, payload: writes.__setitem__(Path(path).name, payload))
+
+    result = ported.stage1_load_initial(patch_dir)
+
+    assert result == "Stage 1 created ps1/ph1 for 2 candidates"
+    ps1 = writes["ps1.mat"]
+    assert int(np.asarray(ps1["n_ps"]).reshape(-1)[0]) == 2
+    assert int(np.asarray(ps1["n_ifg"]).reshape(-1)[0]) == 3
+    assert int(np.asarray(ps1["master_ix"]).reshape(-1)[0]) == 2
+    np.testing.assert_array_equal(np.asarray(ps1["sort_ix"]), np.asarray([1.0, 4.0]))
+    np.testing.assert_array_equal(np.asarray(ps1["bperp"]), np.asarray([10.0, 0.0, 30.0], dtype=np.float32))
+    np.testing.assert_array_equal(np.asarray(ps1["ij"])[:, 0], np.asarray([1.0, 2.0]))
+    np.testing.assert_array_equal(
+        np.asarray(writes["ph1.mat"]["ph"]),
+        np.asarray([[2.0, 1.0, 3.0], [4.0, 1.0, 6.0]], dtype=np.complex64),
+    )
+    np.testing.assert_array_equal(
+        np.asarray(writes["bp1.mat"]["bperp_mat"]),
+        np.asarray([[10.0, 30.0], [10.0, 30.0]], dtype=np.float32),
+    )
+    np.testing.assert_array_equal(np.asarray(writes["da1.mat"]["D_A"]), np.asarray([1.0, 4.0]))
+    np.testing.assert_array_equal(
+        np.asarray(writes["hgt1.mat"]["hgt"]), np.asarray([10.0, 40.0], dtype=np.float32)
+    )
+
+
+@pytest.mark.parametrize("legacy_input", ["look_angle.1.in", "bperp_20200113.1.in"])
+def test_stage1_rejects_unsupported_spatial_legacy_inputs(tmp_path: Path, legacy_input: str) -> None:
+    patch_dir = tmp_path / "PATCH_1"
+    patch_dir.mkdir()
+    for name in ("pscands.1.ij", "pscands.1.ph", "pscands.1.ll"):
+        (patch_dir / name).touch()
+    (tmp_path / legacy_input).touch()
+
+    with pytest.raises(ported.PortedStageError, match="per-pixel interpolation is not implemented"):
+        ported.stage1_load_initial(patch_dir)
 
 
 def test_ps_topofit_batch_row_invariant_matches_generic() -> None:
@@ -1653,7 +1821,10 @@ def test_stage2_saved_nr_matches_scaled_histogram(monkeypatch, tmp_path: Path) -
         )
     }
     bp_payload = {"bperp_mat": np.asarray([[15.0, 30.0], [25.0, 40.0]], dtype=np.float64)}
-    parms_payload = {"gamma_max_iterations": np.asarray(2.0, dtype=np.float64)}
+    parms_payload = {
+        "gamma_max_iterations": np.asarray(2.0, dtype=np.float64),
+        "filter_weighting": ported._matlab_char_row("P-square"),
+    }
 
     def fake_read_mat(path: Path):
         name = Path(path).name
@@ -1922,7 +2093,7 @@ def test_stage2_replay_iteration_can_target_specific_rows(monkeypatch, tmp_path:
     np.testing.assert_allclose(replay["coh_ps"], np.asarray([0.5], dtype=np.float64), rtol=0.0, atol=0.0)
 
 
-def test_stage2_replay_iteration_keeps_partially_zero_rows(monkeypatch, tmp_path: Path) -> None:
+def test_stage2_replay_iteration_rejects_partially_zero_rows(monkeypatch, tmp_path: Path) -> None:
     patch_dir = tmp_path / "PATCH_1"
     patch_dir.mkdir()
     (patch_dir / "bp1.mat").touch()
@@ -1996,11 +2167,10 @@ def test_stage2_replay_iteration_keeps_partially_zero_rows(monkeypatch, tmp_path
 
     replay = ported._stage2_replay_iteration_from_payload(context, pm_payload, compute_weighting=False)
 
-    assert len(calls) == 1
-    np.testing.assert_allclose(calls[0], np.asarray([[0.0 + 0.0j, 1.0 + 0.0j]], dtype=np.complex128))
-    np.testing.assert_allclose(replay["K_ps"], np.asarray([0.25], dtype=np.float64), rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(replay["C_ps"], np.asarray([0.75], dtype=np.float64), rtol=0.0, atol=0.0)
-    np.testing.assert_allclose(replay["coh_ps"], np.asarray([0.5], dtype=np.float64), rtol=0.0, atol=0.0)
+    assert calls == []
+    assert np.isnan(replay["K_ps"][0])
+    np.testing.assert_array_equal(replay["C_ps"], np.asarray([0.0], dtype=np.float64))
+    np.testing.assert_array_equal(replay["coh_ps"], np.asarray([0.0], dtype=np.float64))
 
 
 def test_stage2_random_hist_cache_reuses_deterministic_histogram(
@@ -2361,7 +2531,7 @@ def test_stage2_row_invariant_bperp_vector_prefers_invariant_bp1_rows() -> None:
     np.testing.assert_allclose(observed, bperp_mat[0])
 
 
-def test_stage2_reprocesses_partial_zero_rows_for_generic_topofit(monkeypatch, tmp_path: Path) -> None:
+def test_stage2_rejects_partial_zero_rows_for_generic_topofit(monkeypatch, tmp_path: Path) -> None:
     patch_dir = tmp_path / "PATCH_1"
     patch_dir.mkdir()
     (patch_dir / "bp1.mat").touch()
@@ -2478,16 +2648,4 @@ def test_stage2_reprocesses_partial_zero_rows_for_generic_topofit(monkeypatch, t
     result = ported.stage2_estimate_gamma(patch_dir, debug=False)
 
     assert result == "Stage 2 computed coherence for 2 candidates in 1 iterations"
-    assert len(seen_cpxphase) == 1
-    np.testing.assert_allclose(
-        seen_cpxphase[0],
-        np.asarray(
-            [
-                [0.0 + 0.0j, 0.99513334 - 0.09853761j],
-                [0.0 + 0.0j, 0.99513328 + 0.09853766j],
-            ],
-            dtype=np.complex128,
-        ),
-        atol=1e-7,
-        rtol=0.0,
-    )
+    assert seen_cpxphase == []

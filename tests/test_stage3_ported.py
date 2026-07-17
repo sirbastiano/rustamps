@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from pystamps.io.mat import read_mat, write_mat
 from pystamps.pipeline import ported
@@ -579,6 +580,77 @@ def test_wrap_filt_global_uses_dispatcher_default_padding(monkeypatch) -> None:
     assert observed_low is None
 
 
+@pytest.mark.parametrize(("reestimate_flag", "should_fail"), [("y", True), ("n", False)])
+def test_stage3_missing_reestimate_inputs_fail_only_when_requested(
+    tmp_path: Path,
+    monkeypatch,
+    reestimate_flag: str,
+    should_fail: bool,
+) -> None:
+    patch_dir = tmp_path / "PATCH_1"
+    patch_dir.mkdir()
+    write_mat(
+        patch_dir / "parms.mat",
+        {
+            "select_method": ported._matlab_char_row("PERCENT"),
+            "percent_rand": np.asarray(0.0),
+            "quick_est_gamma_flag": ported._matlab_char_row("y"),
+            "select_reest_gamma_flag": ported._matlab_char_row(reestimate_flag),
+        },
+    )
+    write_mat(
+        patch_dir / "ps1.mat",
+        {
+            "n_ps": np.asarray(1.0),
+            "n_ifg": np.asarray(3.0),
+            "master_ix": np.asarray(1.0),
+            "bperp": np.asarray([0.0, 10.0, 20.0]),
+            "xy": np.asarray([[1.0, 0.0, 0.0]]),
+        },
+    )
+    write_mat(
+        patch_dir / "pm1.mat",
+        {
+            "coh_ps": np.asarray([0.9]),
+            "coh_bins": np.arange(0.005, 1.0, 0.01),
+            "Nr": np.ones(100),
+            "ph_patch": np.ones((1, 2), dtype=np.complex64),
+            "ph_res": np.zeros((1, 2), dtype=np.float32),
+            "K_ps": np.asarray([0.1]),
+            "C_ps": np.asarray([0.0]),
+        },
+    )
+    monkeypatch.setattr(
+        ported,
+        "run_stage3_coh_threshold_kernel",
+        lambda *args, **kwargs: (np.zeros(1), np.asarray([1.0, 0.0])),
+    )
+    monkeypatch.setattr(
+        ported,
+        "_ifg_index_for_selection",
+        lambda *args, **kwargs: np.asarray([1.0, 2.0]),
+    )
+    monkeypatch.setattr(
+        ported,
+        "_as_ps_ifg_complex",
+        lambda values, n_ps, name: np.asarray(values, dtype=np.complex64).reshape(n_ps, -1),
+    )
+    monkeypatch.setattr(
+        ported,
+        "_as_ps_matrix",
+        lambda values, n_ps, name: np.asarray(values, dtype=np.float32).reshape(n_ps, -1),
+    )
+
+    if should_fail:
+        with pytest.raises(ported.PortedStageError, match="bp1.mat is missing"):
+            ported.stage3_select_ps(patch_dir)
+        assert not (patch_dir / "select1.mat").exists()
+    else:
+        assert ported.stage3_select_ps(patch_dir) == "Stage 3 selected 1 PS"
+        payload = read_mat(patch_dir / "select1.mat")
+        np.testing.assert_allclose(np.asarray(payload["K_ps2"]).reshape(-1), [0.1])
+
+
 def test_stage3_density_threshold_uses_matlab_da_bin_edges(tmp_path: Path, monkeypatch) -> None:
     patch_dir = tmp_path / "PATCH_1"
     patch_dir.mkdir()
@@ -647,7 +719,7 @@ def test_stage3_density_threshold_uses_matlab_da_bin_edges(tmp_path: Path, monke
     assert result == "Stage 3 selected 0 PS"
     np.testing.assert_array_equal(
         captured["D_A_max"],
-        np.asarray([0.0, 10001.0, 20001.0, 30001.0, 50000.0], dtype=np.float64),
+        np.asarray([0.0, 10000.0, 20000.0, 30000.0, 40000.0, 50000.0], dtype=np.float64),
     )
     assert captured["histogram_backend"] == "native"
 

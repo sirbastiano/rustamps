@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import os
 from typing import Any
 
 import numpy as np
@@ -9,6 +8,7 @@ from scipy import signal
 
 from pystamps.config import ConfigError, normalize_stage2_kernel_backend
 from pystamps.kernels.registry import DEFAULT_REGISTRY, KernelResolutionError
+from pystamps.runtime.resources import cpu_budget
 
 _STAGE8_NOISE_SCALE = np.float32(0.5)
 _STAGE2_NATIVE_MODULE: Any | None = None
@@ -108,7 +108,7 @@ def _native_threads(threads: int = 0) -> int:
     requested = int(threads)
     if requested > 0:
         return requested
-    return max(1, os.cpu_count() or 1)
+    return cpu_budget()
 
 
 def stage2_native_available() -> bool:

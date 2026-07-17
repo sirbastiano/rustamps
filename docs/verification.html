@@ -3,91 +3,36 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Verification - pySTAMPS Docs</title>
+  <title>Native verification - pySTAMPS</title>
   <link rel="stylesheet" href="assets/styles.css" />
-  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
-  <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS Docs</h1></div>
-    <small>Output comparison and parity checks.</small>
-    <nav>
-      <div class="nav-group"><h2>Guide</h2><ul class="nav-list"><li><a href="index.html">Introduction</a></li><li><a href="pipeline-science-guide.html">Pipeline Guide</a></li><li><a href="getting-started.html">Getting Started</a></li><li><a href="installation.html">Installation</a></li><li><a href="quickstart.html">Quick Start</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="configuration.html">Configuration</a></li><li><a href="usage.html">Usage</a></li><li><a href="testing.html">Testing</a></li><li><a class="active" href="verification.html">Verification</a></li><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
-      <div class="nav-group"><h2>Reference</h2><ul class="nav-list"><li><a href="function-reference.html">Function Reference</a></li><li><a href="api/pystamps.html">Package API</a></li><li><a href="api/cli.html">cli</a></li><li><a href="api/verify.html">verify</a></li><li><a href="api/parity_contract.html">parity_contract</a></li></ul></div>
-    </nav>
-  </aside>
+  <aside class="sidebar"><div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div><small>Standalone Rust runtime</small></aside>
   <main class="content">
     <div class="breadcrumb">Home / Verification</div>
-
-    <section class="hero">
-      <span class="badge">Result checks</span>
-      <h1>Validate generated outputs with deterministic comparison workflows.</h1>
-      <p>Verification in pySTAMPS has two practical layers: a direct CLI comparison against a reference dataset, and parity-audit scripts that prepare fresh run copies before validation.</p>
-    </section>
-
+    <h1>Verify scientific artifacts</h1>
     <section class="card">
-      <h2>CLI verification</h2>
-      <p>Use <span class="code-inline">pystamps verify</span> once a run copy exists.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify --run /path/to/run_copy --golden /path/to/reference_dataset</code></pre>
-      <ul>
-        <li>Returns <span class="code-inline">0</span> when all comparisons pass and non-zero when mismatches are found.</li>
-        <li>Compares numeric MATLAB payloads with tolerance settings and classifies failure families by artifact.</li>
-        <li>Use repository shortcuts only for fixed in-repo references.</li>
-      </ul>
+      <h2>Strict comparison</h2>
+      <pre><code class="language-bash">pystamps verify --run RUN_COPY --golden GOLDEN_DATASET</code></pre>
+      <p>Strict mode compares expected artifact presence, keys, dimensions, types, and configured numeric tolerances. It returns nonzero on mismatch.</p>
     </section>
-
     <section class="card">
-      <h2>Repository shortcut caveat</h2>
-      <p><span class="code-inline">make verify</span> is a convenience for fixed reference paths in this repository. For arbitrary runs, use the CLI command above so the path pair is explicit.</p>
+      <h2>Completed stage prefix</h2>
+      <pre><code class="language-bash">pystamps verify --run RUN_COPY --golden GOLDEN_DATASET \
+  --through-stage 6</code></pre>
+      <p>The prefix changes the artifact contract as well as the files inspected.</p>
     </section>
-
     <section class="card">
-      <h2>Parity audit workflow</h2>
-      <p>Parity audits prepare and track fresh run copies, then report the copy path for explicit verification.</p>
-      <p>The public single-master test dataset at <a href="https://huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test/tree/main">huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test</a> can be mirrored before running local validation:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make fetch-insar-dataset</code></pre>
-      <p>If the validation machine has no network access, download the repository archive elsewhere and import it locally:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make import-insar-dataset HF_DATASET_ARCHIVE=/path/to/InSAR_dataset_test.zip</code></pre>
-      <p>After that dataset is local, run its native Rust/conda audit with:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make native-conda-audit-hf</code></pre>
-      <p>If <span class="code-inline">conda</span> is not on the noninteractive shell <span class="code-inline">PATH</span>, pass the executable explicitly, for example <span class="code-inline">CONDA=/opt/miniconda3/bin/conda</span>.</p>
-      <p><span class="code-inline">make audit</span> is the repo-local convenience wrapper. The authoritative driver is <span class="code-inline">scripts/validate_audit.py</span>, and omitting <span class="code-inline">--datasets</span> makes it use the manifest-backed required dataset set from <span class="code-inline">pystamps/data/audited_workflow_manifest.json</span>.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make audit</code></pre>
-      <p>For a native Rust validation run inside the repository conda environment, use the checked-in kernel profile:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make native-conda-check
-make native-conda-audit
-make native-conda-verify</code></pre>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  uv run python scripts/validate_audit.py \
-    --output /path/to/latest_audit.json</code></pre>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">RUN_COPY="$(uv run python - <<'PY'
-import json
-from pathlib import Path
-
-payload = json.loads(Path('/path/to/latest_audit.json').read_text(encoding='utf-8'))
-print(payload['audits'][0]['run_root'])
-PY
-)"
-OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
-  uv run pystamps verify --run "$RUN_COPY" --golden /path/to/reference_dataset</code></pre>
-      <ul>
-        <li>Fresh audit output should be treated as active input for subsequent checks.</li>
-        <li>The required done-gate datasets are owned by <span class="code-inline">pystamps/data/audited_workflow_manifest.json</span>, including the small-baseline stage-7 audit targets.</li>
-        <li>Do not rerun against stale copies; interrupted audits or manual restart paths invalidate prior results.</li>
-      </ul>
+      <h2>Scientific profile</h2>
+      <pre><code class="language-bash">pystamps --config CONFIG verify \
+  --run RUN_COPY --golden GOLDEN_DATASET \
+  --profile scientific</code></pre>
+      <p>Scientific mode permits only configured bounded numeric outliers with hard maximum-error caps. Exact structural keys remain exact, and wrapping applies only to configured cyclic quantities.</p>
     </section>
-
     <section class="card">
-      <h2>Parity loop and oracle precedence</h2>
-      <p><span class="code-inline">make parity-loop</span> wraps <span class="code-inline">scripts/parity_bug_loop.py</span>. The loop consumes a matching <span class="code-inline">latest_audit.json</span> when one already exists, then ranks the next target from the saved first-divergent-boundary trace instead of guessing from downstream symptoms.</p>
-      <p>Oracle precedence comes from <span class="code-inline">pystamps/data/oracle_contract.json</span>: <span class="code-inline">cpp_wrapper</span>, then <span class="code-inline">matlab_source</span>, then <span class="code-inline">manual_references</span>. When the pinned StaMPS wrapper intentionally differs from the MATLAB scripts, the wrapper-backed path is the practical parity oracle and should be recorded in the emitted audit trace.</p>
-    </section>
-
-    <section class="card">
-      <h2>Release flow references</h2>
-      <p>For release gate ordering, use the same parity-audit and verify steps from the verification flow. The release page now links here for full command context.</p>
-      <p>See the full API contract fields for parity in <a href="api/parity_contract.html">api/parity_contract</a> and the command-level verification API in <a href="api/verify.html">api/verify</a>.</p>
+      <h2>Acceptance rule</h2>
+      <p>A successful run command is not a parity claim. Retain the verifier report, configuration, source fingerprint, and performance profile with scientific results.</p>
     </section>
   </main>
 </div>

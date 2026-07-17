@@ -9,6 +9,7 @@ use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;
 use std::f64::consts::PI;
 
+mod mt_prep_native;
 mod stage3_clap_stack;
 mod stage3_native;
 mod stage4_edge_stats_native;
@@ -1878,5 +1879,9 @@ fn _stage2_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(stage8_native::stage8_edge_noise, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        mt_prep_native::mt_prep_prepare_snap_inputs,
+        m
+    )?)?;
     Ok(())
 }

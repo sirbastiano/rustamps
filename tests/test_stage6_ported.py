@@ -19,12 +19,10 @@ from pystamps.pipeline.ported import (
 RUN_FULL_GATE = Path("inputs_and_outputs/RUN_FULL_GATE_1e10")
 
 
-pytestmark = [
-    pytest.mark.skipif(
-        not RUN_FULL_GATE.exists(),
-        reason="requires local parity run copy under inputs_and_outputs/RUN_FULL_GATE_1e10",
-    ),
-]
+requires_full_gate = pytest.mark.skipif(
+    not RUN_FULL_GATE.exists(),
+    reason="requires local parity run copy under inputs_and_outputs/RUN_FULL_GATE_1e10",
+)
 
 
 def test_write_complex_raster_matches_matlab_fwrite_layout(tmp_path: Path) -> None:
@@ -84,7 +82,7 @@ def test_compute_active_single_master_uses_smoother_noise(monkeypatch) -> None:
         return expected_smooth, expected_noise
 
     monkeypatch.setattr(ported, "_estimate_la_error_single_master", fake_estimate)
-    monkeypatch.setattr(ported, "_smooth_3d_full_single_master", fake_smooth)
+    monkeypatch.setattr(ported, "run_stage6_smooth_3d_full_single_master_kernel", fake_smooth)
 
     uw_ph = np.asarray([[1 + 0j, 1 + 0j], [1 + 0j, 1 + 0j]], dtype=np.complex64)
     edgs = np.asarray([[1.0, 1.0, 2.0]], dtype=np.float64)
@@ -112,7 +110,7 @@ def test_compute_active_single_master_normalizes_arc_phasors(monkeypatch) -> Non
         captured["abs"] = np.abs(dph_space)
         return np.zeros((1,), dtype=np.float32)
 
-    def fake_smooth(dph_space, **kwargs):
+    def fake_smooth(dph_space, *args, **kwargs):
         captured["smooth_abs"] = np.abs(dph_space)
         return np.zeros((1, 2), dtype=np.float32), np.zeros((1, 2), dtype=np.float32)
 
@@ -154,12 +152,12 @@ def test_compute_active_single_master_routes_la_error_backend(monkeypatch) -> No
         captured["n_trial_wraps"] = float(n_trial_wraps)
         return np.asarray([0.01], dtype=np.float32)
 
-    def fake_smooth(dph_space, **kwargs):
+    def fake_smooth(dph_space, *args, **kwargs):
         captured["smooth"] = np.asarray(dph_space)
         return np.zeros((1, 2), dtype=np.float32), np.zeros((1, 2), dtype=np.float32)
 
     monkeypatch.setattr(ported, "run_stage6_estimate_la_error_kernel", fake_estimate)
-    monkeypatch.setattr(ported, "_smooth_3d_full_single_master", fake_smooth)
+    monkeypatch.setattr(ported, "run_stage6_smooth_3d_full_single_master_kernel", fake_smooth)
 
     uw_ph = np.asarray([[1 + 0j, 1 + 0j], [1j, -1j]], dtype=np.complex64)
     edgs = np.asarray([[1.0, 1.0, 2.0]], dtype=np.float64)
@@ -231,14 +229,17 @@ def test_extract_grid_values_for_ps_uses_matlab_column_major_order() -> None:
     np.testing.assert_array_equal(out, np.asarray([1.0, 5.0, 3.0], dtype=np.float32))
 
 
-def test_compute_active_single_master_masks_noise_above_legacy_cutoff(monkeypatch) -> None:
+@pytest.mark.parametrize(("outlier", "masked"), [(2.2, False), (2.3, True)])
+def test_compute_active_single_master_uses_stamps_1_3_noise_cutoff(
+    monkeypatch, outlier: float, masked: bool
+) -> None:
     def fake_estimate(*args, **kwargs):
         return np.zeros((1,), dtype=np.float32)
 
     def fake_smooth(*args, **kwargs):
         return (
             np.zeros((1, 3), dtype=np.float32),
-            np.asarray([[0.0, 0.0, 2.2]], dtype=np.float32),
+            np.asarray([[0.0, 0.0, outlier]], dtype=np.float32),
         )
 
     monkeypatch.setattr(ported, "_estimate_la_error_single_master", fake_estimate)
@@ -258,11 +259,20 @@ def test_compute_active_single_master_masks_noise_above_legacy_cutoff(monkeypatc
         n_trial_wraps=1.0,
     )
 
-    assert np.isnan(dph_noise).all()
-    assert np.isnan(dph_space_uw).all()
+    assert bool(np.isnan(dph_noise).all()) is masked
+    assert bool(np.isnan(dph_space_uw).all()) is masked
 
 
-def test_stage6_unwrap_restores_scla_terms_in_phuw2(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("scla_deramp", "restore_ramp"),
+    [("y", True), ("n", False), (None, False)],
+)
+def test_stage6_unwrap_restores_scla_terms_in_phuw2(
+    monkeypatch,
+    tmp_path: Path,
+    scla_deramp: str | None,
+    restore_ramp: bool,
+) -> None:
     dataset_root = tmp_path
     n_ps = 2
     n_ifg = 3
@@ -276,7 +286,9 @@ def test_stage6_unwrap_restores_scla_terms_in_phuw2(monkeypatch, tmp_path: Path)
     k_ps_uw = np.asarray([0.1, 0.2], dtype=np.float32)
     c_ps_uw = np.asarray([0.5, -0.25], dtype=np.float32)
     ph_ramp = np.asarray([[0.05, 0.0, 0.15], [0.2, 0.0, -0.1]], dtype=np.float32)
-    restore = (k_ps_uw[:, None] * bperp_full + c_ps_uw[:, None] + ph_ramp).astype(np.float32)
+    restore = (k_ps_uw[:, None] * bperp_full + c_ps_uw[:, None]).astype(np.float32)
+    if restore_ramp:
+        restore += ph_ramp
     unwrapped_without_restore = np.asarray([[1.0, 0.0, 3.0], [2.0, 0.0, 4.0]], dtype=np.float32)
     ph_rc = np.exp(1j * (unwrapped_without_restore + restore)).astype(np.complex64)
 
@@ -337,19 +349,19 @@ def test_stage6_unwrap_restores_scla_terms_in_phuw2(monkeypatch, tmp_path: Path)
             "n_edge": np.asarray(1.0, dtype=np.float64),
         },
     )
-    write_mat(
-        dataset_root / "parms.mat",
-        {
-            "small_baseline_flag": np.asarray("n"),
-            "unwrap_patch_phase": np.asarray("n"),
-            "unwrap_method": np.asarray("3D"),
-            "unwrap_la_error_flag": np.asarray("y"),
-            "unwrap_spatial_cost_func_flag": np.asarray("n"),
-            "unwrap_time_win": np.asarray(36.0, dtype=np.float64),
-            "lambda": np.asarray(0.0555, dtype=np.float64),
-            "max_topo_err": np.asarray(15.0, dtype=np.float64),
-        },
-    )
+    parms_payload = {
+        "small_baseline_flag": np.asarray("n"),
+        "unwrap_patch_phase": np.asarray("n"),
+        "unwrap_method": np.asarray("3D"),
+        "unwrap_la_error_flag": np.asarray("y"),
+        "unwrap_spatial_cost_func_flag": np.asarray("n"),
+        "unwrap_time_win": np.asarray(36.0, dtype=np.float64),
+        "lambda": np.asarray(0.0555, dtype=np.float64),
+        "max_topo_err": np.asarray(15.0, dtype=np.float64),
+    }
+    if scla_deramp is not None:
+        parms_payload["scla_deramp"] = np.asarray(scla_deramp)
+    write_mat(dataset_root / "parms.mat", parms_payload)
 
     monkeypatch.setattr(
         ported,
@@ -376,7 +388,7 @@ def test_stage6_unwrap_restores_scla_terms_in_phuw2(monkeypatch, tmp_path: Path)
     debug_path = dataset_root / "stage6_debug.json"
     monkeypatch.setenv("PYSTAMPS_STAGE6_DEBUG_JSON", str(debug_path))
 
-    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/bin/true")
+    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/usr/bin/true")
 
     uw_phaseuw = read_mat(dataset_root / "uw_phaseuw.mat")
     np.testing.assert_allclose(
@@ -497,7 +509,7 @@ def test_stage6_unwrap_ignores_incompatible_scla_smooth_seed(monkeypatch, tmp_pa
 
     monkeypatch.setattr(ported, "_load_float_grid", lambda path, ncol: grids.pop(0))
 
-    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/bin/true")
+    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/usr/bin/true")
 
     phuw2 = read_mat(dataset_root / "phuw2.mat")
     expected = np.zeros((n_ps, n_ifg), dtype=np.float32)
@@ -604,7 +616,7 @@ def test_stage6_unwrap_uses_stored_uw_grid_ph_in_for_reconstruction(monkeypatch,
 
     monkeypatch.setattr(ported, "_load_float_grid", fake_load_float_grid)
 
-    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/bin/true")
+    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/usr/bin/true")
 
     phuw2 = read_mat(dataset_root / "phuw2.mat")
     expected = np.zeros((n_ps, n_ifg), dtype=np.float32)
@@ -667,6 +679,7 @@ def test_stage6_generates_uw_grid_ph_in_from_rc2_without_patch_residual(monkeypa
             "small_baseline_flag": np.asarray("n"),
             "unwrap_patch_phase": np.asarray("n"),
             "unwrap_method": np.asarray("3D"),
+            "unwrap_grid_size": np.asarray(20.0, dtype=np.float64),
             "unwrap_prefilter_flag": np.asarray("n"),
             "unwrap_la_error_flag": np.asarray("y"),
             "unwrap_spatial_cost_func_flag": np.asarray("n"),
@@ -703,19 +716,28 @@ def test_stage6_generates_uw_grid_ph_in_from_rc2_without_patch_residual(monkeypa
     grids = [np.zeros((2, 2), dtype=np.float32), np.zeros((2, 2), dtype=np.float32)]
     monkeypatch.setattr(ported, "_load_float_grid", lambda *args, **kwargs: grids.pop(0))
 
-    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/bin/true")
+    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/usr/bin/true")
 
     uw_grid = read_mat(dataset_root / "uw_grid.mat")
     np.testing.assert_allclose(np.asarray(uw_grid["ph_in"], dtype=np.complex64), expected_ph_in, atol=1e-6, rtol=0.0)
 
 
-def test_stage6_unwrap_applies_grid_backprojection_residual(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("unwrap_patch_phase", ["n", "y"])
+@pytest.mark.parametrize("drop_ifg_index", [np.asarray([], dtype=np.int64), np.asarray([1], dtype=np.int64)])
+def test_stage6_unwrap_applies_grid_backprojection_residual(
+    monkeypatch,
+    tmp_path: Path,
+    unwrap_patch_phase: str,
+    drop_ifg_index: np.ndarray,
+) -> None:
     dataset_root = tmp_path
     n_ps = 2
     n_ifg = 3
     master_ix = 2
-    unwrap_cols = np.asarray([0, 2], dtype=np.int64)
+    unwrap_cols = np.asarray([column for column in (0, 2) if column + 1 not in drop_ifg_index], dtype=np.int64)
+    n_unwrap = unwrap_cols.size
     ph2 = np.exp(1j * np.asarray([[0.6, 0.0, -0.4], [0.2, 0.0, 0.8]], dtype=np.float32)).astype(np.complex64)
+    ph_patch = np.exp(1j * np.asarray([[0.1, -0.3], [-0.2, 0.5]], dtype=np.float32)).astype(np.complex64)
 
     write_mat(
         dataset_root / "ps2.mat",
@@ -741,7 +763,7 @@ def test_stage6_unwrap_applies_grid_backprojection_residual(monkeypatch, tmp_pat
             "K_ps": np.asarray([[0.0], [0.0]], dtype=np.float64),
             "C_ps": np.asarray([[0.0], [0.0]], dtype=np.float64),
             "coh_ps": np.asarray([[1.0], [1.0]], dtype=np.float64),
-            "ph_patch": np.ones((n_ps, n_ifg - 1), dtype=np.complex64),
+            "ph_patch": ph_patch,
             "ph_res": np.zeros((n_ps, n_ifg - 1), dtype=np.float32),
         },
     )
@@ -750,7 +772,7 @@ def test_stage6_unwrap_applies_grid_backprojection_residual(monkeypatch, tmp_pat
     write_mat(
         dataset_root / "uw_grid.mat",
         {
-            "ph": np.ones((2, 2), dtype=np.complex64),
+            "ph": np.ones((2, n_unwrap), dtype=np.complex64),
             "nzix": np.asarray([[True, True], [False, False]], dtype=bool),
             "grid_ij": np.asarray([[1.0, 1.0], [1.0, 2.0]], dtype=np.float64),
             "n_ps": np.asarray(2.0, dtype=np.float64),
@@ -770,13 +792,14 @@ def test_stage6_unwrap_applies_grid_backprojection_residual(monkeypatch, tmp_pat
         dataset_root / "parms.mat",
         {
             "small_baseline_flag": np.asarray("n"),
-            "unwrap_patch_phase": np.asarray("n"),
+            "unwrap_patch_phase": np.asarray(unwrap_patch_phase),
             "unwrap_method": np.asarray("3D"),
             "unwrap_la_error_flag": np.asarray("y"),
             "unwrap_spatial_cost_func_flag": np.asarray("n"),
             "unwrap_time_win": np.asarray(36.0, dtype=np.float64),
             "lambda": np.asarray(0.0555, dtype=np.float64),
             "max_topo_err": np.asarray(15.0, dtype=np.float64),
+            "drop_ifg_index": drop_ifg_index,
         },
     )
 
@@ -784,29 +807,35 @@ def test_stage6_unwrap_applies_grid_backprojection_residual(monkeypatch, tmp_pat
         ported,
         "_compute_active_single_master_uw_space_time",
         lambda *args, **kwargs: (
-            np.zeros((2, 2), dtype=np.float64),
-            np.zeros((1, 2), dtype=np.complex64),
-            np.zeros((1, 2), dtype=np.float32),
-            np.zeros((1, 2), dtype=np.float32),
-            np.zeros((1, 2), dtype=np.float32),
+            np.zeros((n_unwrap, n_ifg), dtype=np.float64),
+            np.zeros((1, n_unwrap), dtype=np.complex64),
+            np.zeros((1, n_unwrap), dtype=np.float32),
+            np.zeros((1, n_unwrap), dtype=np.float32),
+            np.zeros((1, n_unwrap), dtype=np.float32),
         ),
     )
     monkeypatch.setattr(ported, "_run_external_command", lambda *args, **kwargs: None)
 
-    grids = [
+    all_grids = [
         np.asarray([[1.0, 2.0], [9.0, 10.0]], dtype=np.float32),
         np.asarray([[3.0, 4.0], [11.0, 12.0]], dtype=np.float32),
     ]
+    grids = [all_grids[column // 2] for column in unwrap_cols]
 
     monkeypatch.setattr(ported, "_load_float_grid", lambda *args, **kwargs: grids.pop(0))
 
-    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/bin/true")
+    ported.stage6_unwrap(dataset_root, backend="python", enable_mat_cache=False, snaphu_path="/usr/bin/true")
 
     phuw2 = read_mat(dataset_root / "phuw2.mat")
     expected = np.zeros((n_ps, n_ifg), dtype=np.float32)
-    ph_uw_pix = np.asarray([[1.0, 3.0], [2.0, 4.0]], dtype=np.float32)
-    expected[:, unwrap_cols] = ph_uw_pix + np.angle(ph2[:, unwrap_cols] * np.exp(-1j * ph_uw_pix)).astype(np.float32)
-    np.testing.assert_allclose(np.asarray(phuw2["ph_uw"], dtype=np.float32), expected)
+    ph_uw_pix = np.asarray([[1.0, 3.0], [2.0, 4.0]], dtype=np.float32)[:, [column // 2 for column in unwrap_cols]]
+    patch_phase_full = np.column_stack((ph_patch[:, 0], np.ones(n_ps, dtype=np.complex64), ph_patch[:, 1]))
+    phase_input = ph2[:, unwrap_cols] if unwrap_patch_phase == "n" else patch_phase_full[:, unwrap_cols]
+    expected_sel = ph_uw_pix + np.angle(phase_input * np.exp(-1j * ph_uw_pix)).astype(np.float32)
+    if unwrap_patch_phase == "y":
+        expected_sel += np.angle(ph2[:, unwrap_cols] * np.conj(patch_phase_full[:, unwrap_cols])).astype(np.float32)
+    expected[:, unwrap_cols] = expected_sel
+    np.testing.assert_allclose(np.asarray(phuw2["ph_uw"], dtype=np.float32), expected, atol=2e-7, rtol=0.0)
 
 
 def test_single_master_insert_master_ix_uses_first_positive_slot() -> None:
@@ -816,6 +845,7 @@ def test_single_master_insert_master_ix_uses_first_positive_slot() -> None:
 
 
 @pytest.mark.dataset_parity
+@requires_full_gate
 def test_active_single_master_matches_full_gate_probe_slice() -> None:
     ps2 = read_mat(RUN_FULL_GATE / "ps2.mat")
     uw_grid = read_mat(RUN_FULL_GATE / "uw_grid.mat")
@@ -857,6 +887,7 @@ def test_active_single_master_matches_full_gate_probe_slice() -> None:
 
 
 @pytest.mark.dataset_parity
+@requires_full_gate
 def test_active_single_master_matches_full_gate_critical_rows() -> None:
     ps2 = read_mat(RUN_FULL_GATE / "ps2.mat")
     uw_grid = read_mat(RUN_FULL_GATE / "uw_grid.mat")

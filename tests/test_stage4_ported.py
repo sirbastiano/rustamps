@@ -56,6 +56,7 @@ def test_resolve_stage4_edges_regenerates_triangle_from_current_nodes(tmp_path: 
 def test_resolve_stage4_edges_uses_existing_file_without_triangle(tmp_path: Path, monkeypatch) -> None:
     patch_dir = tmp_path / "PATCH_1"
     patch_dir.mkdir()
+    _write_node_file(patch_dir / "psweed.1.node", [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)])
     _write_edge_file(patch_dir / "psweed.2.edge", [(1, 2), (2, 3)])
 
     xy_weed = np.asarray(
@@ -73,6 +74,28 @@ def test_resolve_stage4_edges_uses_existing_file_without_triangle(tmp_path: Path
 
     assert source == "triangle_file"
     np.testing.assert_array_equal(edges, np.asarray([[0, 1], [1, 2]], dtype=np.int64))
+
+
+def test_resolve_stage4_edges_ignores_unverifiable_edge_file_without_node(
+    tmp_path: Path, monkeypatch
+) -> None:
+    patch_dir = tmp_path / "PATCH_1"
+    patch_dir.mkdir()
+    _write_edge_file(patch_dir / "psweed.2.edge", [(1, 2)])
+    xy_weed = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [2.0, 1.0, 0.0],
+            [3.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    monkeypatch.setattr(ported, "_maybe_resolve_external_tool", lambda *args, **kwargs: None)
+
+    edges, source = ported._resolve_stage4_edges(patch_dir, xy_weed, strict_reference=False)
+
+    assert source == "delaunay_fallback"
+    assert edges.shape[0] > 1
 
 
 def test_resolve_stage4_edges_ignores_stale_triangle_file_without_triangle(

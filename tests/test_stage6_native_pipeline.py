@@ -1,9 +1,67 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 import pystamps.pipeline.ported as ported
 from pystamps.io.mat import read_mat, write_mat
+
+
+def test_resolve_snaphu_from_optional_python_package(monkeypatch, tmp_path: Path) -> None:
+    package_dir = tmp_path / "snaphu"
+    package_dir.mkdir()
+    executable = package_dir / "snaphu"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    monkeypatch.setattr(ported.shutil, "which", lambda *args: None)
+    monkeypatch.setattr(
+        ported.importlib.util,
+        "find_spec",
+        lambda name: SimpleNamespace(submodule_search_locations=[str(package_dir)]),
+    )
+
+    assert ported._maybe_resolve_external_tool("snaphu") == str(executable.resolve())
+
+
+def test_ps_ifg_matrix_restores_singleton_axis_squeezed_by_mat_reader() -> None:
+    values = np.asarray([1.0 + 2.0j, 3.0 + 4.0j], dtype=np.complex64)
+
+    observed = ported._as_ps_ifg_complex(values, 2, "fixture")
+
+    assert observed.shape == (2, 1)
+    np.testing.assert_array_equal(observed[:, 0], values)
+
+
+def test_stage6_auto_prefers_resolvable_snaphu_and_native_does_not(monkeypatch) -> None:
+    monkeypatch.setattr(ported, "_maybe_resolve_external_tool", lambda *args, **kwargs: "/opt/bin/snaphu")
+
+    assert ported._select_stage6_unwrap_solver("auto", None) == (True, "/opt/bin/snaphu")
+    assert ported._select_stage6_unwrap_solver("native", None) == (False, None)
+    assert ported._select_stage6_unwrap_solver("native", None, solver="auto") == (
+        True,
+        "/opt/bin/snaphu",
+    )
+    assert ported._select_stage6_unwrap_solver("auto", None, solver="native") == (False, None)
+
+    monkeypatch.setattr(ported, "_maybe_resolve_external_tool", lambda *args, **kwargs: None)
+    assert ported._select_stage6_unwrap_solver("auto", None) == (False, None)
+
+
+@pytest.mark.parametrize("unsupported_flag", ["subtr_tropo", "unwrap_hold_good_values"])
+def test_stage6_rejects_unsupported_phase_options(tmp_path: Path, unsupported_flag: str) -> None:
+    write_mat(
+        tmp_path / "ps2.mat",
+        {
+            "n_ps": np.asarray(2.0),
+            "master_ix": np.asarray(1.0),
+        },
+    )
+    write_mat(tmp_path / "ph2.mat", {"ph": np.ones((2, 2), dtype=np.complex64)})
+    write_mat(tmp_path / "parms.mat", {unsupported_flag: np.asarray("y")})
+
+    with pytest.raises(ported.PortedStageError, match=unsupported_flag):
+        ported.stage6_unwrap(tmp_path, enable_mat_cache=False)
 
 
 def test_stage6_unwrap_uses_native_grid_kernel_without_snaphu(monkeypatch, tmp_path: Path) -> None:

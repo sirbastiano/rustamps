@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+"""Developer-only standard-library harness for native Rust release gates."""
+
 from __future__ import annotations
 
 import argparse
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -15,7 +18,7 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = Path("inputs_and_outputs/validation_runs/native_conda_step_validation_latest.json")
+DEFAULT_OUTPUT = Path("inputs_and_outputs/validation_runs/native_rust_step_validation_latest.json")
 
 
 @dataclass(frozen=True)
@@ -25,51 +28,23 @@ class Step:
     env: dict[str, str] = field(default_factory=dict)
 
 
-E2E_SCRIPT = "scripts/native_e2e_validate.py"
-E2E_ROOT = "inputs_and_outputs/validation_runs/native_conda_e2e"
-NATIVE_CONFIG = "configs/native-kernels.yaml"
+NATIVE_BINARY = str(
+    Path("target") / "release" / ("pystamps.exe" if os.name == "nt" else "pystamps")
+)
+CARGO = os.environ.get("CARGO") or shutil.which("cargo")
+if CARGO is None:
+    cargo_name = "cargo.exe" if os.name == "nt" else "cargo"
+    rustup_cargo = Path.home() / ".cargo" / "bin" / cargo_name
+    CARGO = str(rustup_cargo) if rustup_cargo.is_file() else "cargo"
 
 
 STEPS: tuple[Step, ...] = (
-    Step("env-backends", ["python", "-m", "pystamps.cli", "describe-backends"]),
-    Step("rust-fmt", ["cargo", "fmt", "--check"]),
-    Step("rust-check", ["cargo", "check"]),
-    Step("rust-tests", ["cargo", "test", "--lib"]),
-    Step("extension-build", ["python", "setup.py", "build_ext", "--inplace"]),
-    Step(
-        "extension-import",
-        [
-            "python",
-            "-c",
-            (
-                "import pystamps.kernels._stage2_native as native; "
-                "assert hasattr(native, 'stage6_unwrap_grid'); "
-                "print('stage6_unwrap_grid available')"
-            ),
-        ],
-    ),
-    Step("e2e-prepare", ["python", E2E_SCRIPT, "prepare", "--root", E2E_ROOT]),
-    *(
-        Step(
-            f"e2e-stage{stage}",
-            [
-                "python",
-                E2E_SCRIPT,
-                "stage",
-                "--root",
-                E2E_ROOT,
-                "--config",
-                NATIVE_CONFIG,
-                "--stage",
-                str(stage),
-            ],
-        )
-        for stage in range(1, 9)
-    ),
-    Step(
-        "e2e-outputs",
-        ["python", E2E_SCRIPT, "verify", "--root", E2E_ROOT],
-    ),
+    Step("rust-fmt", [CARGO, "fmt", "--all", "--", "--check"]),
+    Step("rust-check", [CARGO, "check", "--workspace", "--locked"]),
+    Step("rust-tests", [CARGO, "test", "--workspace", "--locked"]),
+    Step("rust-release", [CARGO, "build", "--release", "--locked"]),
+    Step("native-version", [NATIVE_BINARY, "--version"]),
+    Step("native-backends", [NATIVE_BINARY, "describe-backends"]),
 )
 
 
@@ -110,20 +85,9 @@ def _measure_child(payload_path: Path) -> int:
 
 def _run_step(step: Step, *, verbose: bool) -> dict[str, Any]:
     env = os.environ.copy()
-    env.update(
-        {
-            "PYTHONPATH": ".",
-            "OPENBLAS_NUM_THREADS": "1",
-            "OMP_NUM_THREADS": "1",
-            "MKL_NUM_THREADS": "1",
-            "PYSTAMPS_STAGE2_RANDOM_HIST_CACHE": str(
-                REPO_ROOT / "inputs_and_outputs/validation_runs/stage2_random_hist_cache"
-            ),
-        }
-    )
     env.update(step.env)
 
-    with TemporaryDirectory(prefix="pystamps-native-validate-") as tmp:
+    with TemporaryDirectory(prefix="pystamps-rust-validate-") as tmp:
         payload_path = Path(tmp) / "payload.json"
         result_path = Path(tmp) / "result.json"
         payload_path.write_text(
@@ -145,7 +109,8 @@ def _run_step(step: Step, *, verbose: bool) -> dict[str, Any]:
             stderr=subprocess.PIPE,
         )
         if helper.returncode != 0 or not result_path.exists():
-            raise RuntimeError(helper.stderr or helper.stdout or f"measurement helper failed for {step.name}")
+            details = helper.stderr or helper.stdout
+            raise RuntimeError(details or f"measurement helper failed for {step.name}")
         measured = json.loads(result_path.read_text(encoding="utf-8"))
 
     peak_bytes = measured["peak_rss_bytes"]
@@ -190,11 +155,25 @@ def _selected_steps(names: list[str]) -> list[Step]:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run short native Rust conda validation steps with peak RSS output.")
-    parser.add_argument("--step", action="append", default=[], help="Run one named step; repeat for multiple steps.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run standalone Rust validation steps with peak RSS output. "
+            "This standard-library Python wrapper is developer tooling, not a runtime dependency."
+        )
+    )
+    parser.add_argument(
+        "--step",
+        action="append",
+        default=[],
+        help="Run one named step; repeat for multiple steps.",
+    )
     parser.add_argument("--list", action="store_true", help="List available steps and exit.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="JSON report path.")
-    parser.add_argument("--verbose", action="store_true", help="Keep command stdout/stderr tails for passing steps.")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Keep command stdout/stderr tails for passing steps.",
+    )
     parser.add_argument("--_measure-child", type=Path, help=argparse.SUPPRESS)
     return parser.parse_args()
 
@@ -209,7 +188,7 @@ def main() -> int:
         return 0
 
     report = {
-        "profile": "native-conda-step-validation",
+        "profile": "native-rust-step-validation",
         "platform": platform.platform(),
         "steps": [],
     }

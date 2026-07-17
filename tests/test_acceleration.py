@@ -109,7 +109,7 @@ def test_effective_stage2_native_threads_uses_explicit_override() -> None:
 
 
 def test_effective_stage2_native_threads_default_uses_all_cpu_workers(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("pystamps.pipeline.stages.os.cpu_count", lambda: 9)
+    monkeypatch.setattr("pystamps.pipeline.stages.cpu_budget", lambda: 9)
     context = _ctx("auto", stage2_kernel_backend="native", cpu_workers=0)
 
     assert _effective_stage2_native_threads(STAGE_DEFS[1], context, patch_count=4) == 9
@@ -122,7 +122,7 @@ def test_effective_stage2_native_threads_is_disabled_for_python_backend() -> Non
 
 
 def test_effective_stage2_native_threads_uses_patch_override_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("pystamps.pipeline.stages.os.cpu_count", lambda: 7)
+    monkeypatch.setattr("pystamps.pipeline.stages.cpu_budget", lambda: 7)
     context = _ctx(stage2_kernel_backend="python")
 
     assert (
@@ -184,6 +184,28 @@ def test_run_merged_stage_uses_kernel_backend_override(
 
     assert result.status == "completed"
     assert captured == {"backend": "cuda"}
+
+
+def test_run_merged_stage_passes_independent_stage6_solver(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context = _ctx(backend="native")
+    context.run_config.runtime.stage6_solver = "auto"
+    (tmp_path / "ifgstd2.mat").touch()
+    captured: dict[str, str] = {}
+
+    def fake_stage6_unwrap(dataset_root, **kwargs):
+        captured["backend"] = kwargs["backend"]
+        captured["solver"] = kwargs["solver"]
+        return "ok"
+
+    monkeypatch.setattr("pystamps.pipeline.stages.stage6_unwrap", fake_stage6_unwrap)
+
+    result = _run_merged_stage(STAGE_DEFS[5], tmp_path, context)
+
+    assert result.status == "completed"
+    assert captured == {"backend": "native", "solver": "auto"}
 
 
 def test_run_merged_stage_force_run_bypasses_existing_bundle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -249,7 +271,7 @@ def test_run_pipeline_legacy_post_preserves_wrapper_stage_order(monkeypatch: pyt
     report = run_pipeline(context)
 
     assert [result.stage_id for result in report.results] == [6, 7, 8]
-    assert calls == [(6, False), (7, False), (8, False)]
+    assert calls == [(6, True), (7, True), (8, True)]
 
 
 def test_run_pipeline_serializes_stage2_patches_when_default_uses_full_cpu(

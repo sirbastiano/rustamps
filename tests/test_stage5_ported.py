@@ -1,10 +1,14 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
+from pystamps.io.mat import write_mat
+from pystamps.pipeline import ported
 from pystamps.pipeline.ported import (
     _build_uw_interp_payload,
     _discover_patch_dirs,
+    _format_merged_rc2_mat_payload,
     _format_merged_rc2_payload,
 )
 
@@ -50,3 +54,27 @@ def test_format_merged_rc2_payload_normalizes_and_transposes() -> None:
         rtol=1e-6,
         atol=1e-6,
     )
+
+
+def test_format_merged_rc2_mat_payload_restores_ps_ifg_orientation() -> None:
+    rc2_all = np.asarray(
+        [
+            [3.0 + 4.0j, 0.0 + 0.0j, -2.0j],
+            [1.0 - 1.0j, 2.0 + 0.0j, 0.0 + 0.0j],
+        ],
+        dtype=np.complex64,
+    )
+
+    payload = _format_merged_rc2_mat_payload(rc2_all, backend="python")
+
+    assert payload.shape == rc2_all.shape
+    np.testing.assert_allclose(payload[0], np.asarray([0.6 + 0.8j, 0.0 + 0.0j, -1.0j]))
+    np.testing.assert_allclose(payload[1, 0], (1.0 - 1.0j) / np.sqrt(2.0), rtol=1e-6, atol=1e-6)
+
+
+def test_stage5_rejects_nonzero_local_merge_resample_size(tmp_path: Path) -> None:
+    write_mat(tmp_path / "parms.mat", {"merge_resample_size": np.asarray(0.0)})
+    write_mat(tmp_path / "localparms.mat", {"merge_resample_size": np.asarray(25.0)})
+
+    with pytest.raises(ported.PortedStageError, match="weighted patch resampling is not implemented"):
+        ported.stage5_merge_and_ifgstd(tmp_path)

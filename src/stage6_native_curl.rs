@@ -16,6 +16,7 @@ pub(crate) fn plaquette_curl(
     Some(rounded_delta(top) + rounded_delta(right) - rounded_delta(bottom) - rounded_delta(left))
 }
 
+#[allow(dead_code)]
 pub(crate) fn balance_local_curl(
     horizontal: &mut [Option<EdgeDatum>],
     vertical: &mut [Option<EdgeDatum>],

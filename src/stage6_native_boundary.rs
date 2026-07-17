@@ -235,6 +235,7 @@ fn apply_route_step(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn route_residue_to_boundary(
     horizontal: &mut [Option<EdgeDatum>],
     vertical: &mut [Option<EdgeDatum>],

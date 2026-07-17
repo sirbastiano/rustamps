@@ -3,234 +3,75 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Getting Started - pySTAMPS Docs</title>
+  <title>Getting started - pySTAMPS native runtime</title>
   <link rel="stylesheet" href="assets/styles.css" />
-  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS Docs</h1></div>
-    <small>Plain-language orientation for first-time users.</small>
-    <nav>
-      <div class="nav-group">
-        <h2>Guide</h2>
-        <ul class="nav-list">
-          <li><a href="index.html">Introduction</a></li>
-          <li><a href="pipeline-science-guide.html">Pipeline Guide</a></li>
-          <li><a class="active" href="getting-started.html">Getting Started</a></li>
-          <li><a href="installation.html">Installation</a></li>
-          <li><a href="quickstart.html">Quick Start</a></li>
-          <li><a href="architecture.html">Architecture</a></li>
-          <li><a href="configuration.html">Configuration</a></li>
-          <li><a href="usage.html">Usage</a></li>
-          <li><a href="testing.html">Testing</a></li>
-          <li><a href="verification.html">Verification</a></li>
-          <li><a href="contributing.html">Contributing</a></li>
-          <li><a href="faq.html">FAQ</a></li>
-        </ul>
-      </div>
-      <div class="nav-group">
-        <h2>Reference</h2>
-        <ul class="nav-list">
-          <li><a href="function-reference.html">Function Reference</a></li>
-          <li><a href="api/pystamps.html">Package API</a></li>
-        </ul>
-      </div>
-    </nav>
+    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <small>Standalone Rust runtime</small>
+    <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
+      <li><a href="index.html">Introduction</a></li>
+      <li><a href="installation.html">Installation</a></li>
+      <li><a href="quickstart.html">Quick start</a></li>
+      <li><a href="configuration.html">Configuration</a></li>
+      <li><a href="usage.html">Usage</a></li>
+      <li><a href="pipeline-science-guide.html">Science guide</a></li>
+    </ul></div></nav>
   </aside>
   <main class="content">
-    <div class="breadcrumb">Home / Getting Started</div>
+    <div class="breadcrumb">Home / Getting started</div>
+    <h1>Getting started with native pySTAMPS</h1>
+    <p>pySTAMPS is one Rust binary that prepares compatible SNAP data, runs the eight-stage StaMPS-style workflow, and verifies its artifacts. Production processing has no external scientific executable or language runtime.</p>
 
-    <section class="hero">
-      <span class="badge">Beginner guide</span>
-      <h1>Understand the workflow before you run it.</h1>
-      <p>You do not need to be an interferometry specialist to start using pySTAMPS. You do need a working mental model of what the package reads, what it writes, and why the outputs are organized into stages.</p>
-      <div class="hero-actions">
-        <a class="button-link" href="pipeline-science-guide.html">Read the full pipeline guide</a>
-        <a class="button-link secondary" href="quickstart.html">Use quick start</a>
-      </div>
+    <section class="card">
+      <h2>Install and inspect</h2>
+      <pre><code class="language-bash">cargo build --release --locked
+cargo install --path . --locked
+pystamps describe-backends
+pystamps describe-inputs --stage all</code></pre>
     </section>
 
     <section class="card">
-      <h2>What is pySTAMPS?</h2>
-      <p>pySTAMPS is a Python implementation and orchestration layer for StaMPS-style processing. In practical terms, it reads a dataset directory, checks which processing artifacts already exist, and runs the stages you select.</p>
-      <div class="callout info"><strong>Think of it this way:</strong> pySTAMPS is a reproducible processing assistant for a folder full of scientific inputs and intermediate outputs.</div>
+      <h2>Prepare data safely</h2>
+      <p>Process a copy, because a positive stage range replaces selected artifacts and invalidates dependent later products.</p>
+      <pre><code class="language-bash">cp -a /path/to/source_dataset /path/to/run_dataset
+pystamps status --dataset /path/to/run_dataset</code></pre>
+      <p>If the copy is a compatible SNAP export without patch inputs:</p>
+      <pre><code class="language-bash">pystamps prep snap --dataset /path/to/run_dataset</code></pre>
+      <p>Preparation derives wavelength and heading from the master RSLC metadata. Missing or invalid sensor metadata fails explicitly.</p>
     </section>
 
     <section class="card">
-      <h2>Install and check the runtime</h2>
-      <p>From a local checkout, use <span class="code-inline">uv</span> and then inspect the registered kernel backends.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">git clone git@github.com:sirbastiano/pystamps.git
-cd pystamps
-uv sync
-uv run pystamps describe-backends</code></pre>
-      <p>Editable <span class="code-inline">pip</span> installs require Rust because the native Rust/CPU extension is compiled locally.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">python -m pip install -e .
-python -m pip install -e ".[dev]"</code></pre>
-      <p>Conda users can create the repository Rust build environment and install the editable package there:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">conda env create -f environment.yml
-conda activate pystamps-rust
-python -m pip install -e ".[dev]"
-cargo check
-python setup.py build_ext --inplace
-pystamps describe-backends</code></pre>
-      <p>Run <span class="code-inline">make native-conda-env-check</span> after creating or updating the environment to confirm that <span class="code-inline">huggingface_hub</span> and backend discovery are available.</p>
-      <p>After Rust kernel edits, run <span class="code-inline">make native-conda-kernel-check</span> to format-check Rust, run the Rust unit tests, rebuild the PyO3 extension, and verify that Python can import <span class="code-inline">stage6_unwrap_grid</span>.</p>
-      <p>If <span class="code-inline">conda</span> is not on the noninteractive shell <span class="code-inline">PATH</span>, pass the executable explicitly:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make native-conda-check CONDA=/opt/miniconda3/bin/conda
-make native-conda-kernel-check CONDA=/opt/miniconda3/bin/conda</code></pre>
-      <p>Update that environment later with:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">conda env update -f environment.yml --prune</code></pre>
+      <h2>Run or resume</h2>
+      <pre><code class="language-bash">pystamps run --dataset /path/to/run_dataset \
+  --start-step 1 --end-step 8 --dry-run
+pystamps run --dataset /path/to/run_dataset \
+  --start-step 1 --end-step 8</code></pre>
+      <p>Use <span class="code-inline">--start-step 0</span> to resume from existing completion artifacts. Stage 6 also reuses only atomic per-interferogram checkpoints whose scientific fingerprint still matches.</p>
     </section>
 
     <section class="card">
-      <h2>Minimum concepts in plain language</h2>
-      <div class="concept-grid">
-        <div class="highlight-card">
-          <h3>Interferogram</h3>
-          <p>An interferogram is a derived measurement that compares two radar observations. It stores phase differences, which are useful but not yet easy to interpret physically.</p>
-        </div>
-        <div class="highlight-card">
-          <h3>Phase</h3>
-          <p>Phase is a wrapped angular quantity. It repeats, so a raw phase value often needs extra processing before it can be interpreted as a smooth displacement-like signal.</p>
-        </div>
-        <div class="highlight-card">
-          <h3>Unwrapping</h3>
-          <p>Unwrapping tries to turn repeating phase cycles into a continuous signal. In pySTAMPS this is one of the later merged stages; the supported native Stage 6 path uses Rust/CPU kernels, while <span class="code-inline">snaphu</span> remains a legacy fallback.</p>
-        </div>
-        <div class="highlight-card">
-          <h3>Coherence</h3>
-          <p>Coherence is a rough measure of signal stability and reliability. Higher coherence usually means a point is easier to trust during later processing.</p>
-        </div>
-        <div class="highlight-card">
-          <h3>Persistent scatterer</h3>
-          <p>A persistent scatterer is a point that remains stable enough across repeated observations to be useful for long-term analysis.</p>
-        </div>
-        <div class="highlight-card">
-          <h3>SCLA</h3>
-          <p>SCLA stands for spatially correlated look-angle error. In practice, pySTAMPS estimates and compensates for structured phase components that are not the signal you want to keep.</p>
-        </div>
-      </div>
+      <h2>Choose the grid deliberately</h2>
+      <p>The default native configuration preserves the dataset unwrap grid and solves integer flow to convergence. The balanced and fast profiles reduce dense grid cells by increasing spacing; this can produce large speed gains at lower spatial resolution.</p>
+      <pre><code class="language-bash">pystamps --config configs/stage6-balanced.yaml run \
+  --dataset /path/to/run_dataset --start-step 6 --end-step 8</code></pre>
+      <p>A bounded flow-pass approximation is not supported because it failed scientific validation.</p>
     </section>
 
     <section class="card">
-      <h2>What a dataset folder looks like</h2>
-      <p>pySTAMPS works on a dataset root. That root usually contains patch directories such as <span class="code-inline">PATCH_1</span>, plus merged-level folders and files such as <span class="code-inline">geo</span>, <span class="code-inline">rslc</span>, or <span class="code-inline">diff0</span>.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-text">/path/to/reference_dataset/
-  PATCH_1/
-  PATCH_2/
-  PATCH_3/
-  PATCH_4/
-  geo/
-  rslc/
-  diff0/
-</code></pre>
-      <div class="callout tip">Run on a copy of a dataset. pySTAMPS writes new artifacts into the same directory tree, so a disposable run copy is safer than your only original dataset.</div>
+      <h2>Verify before accepting results</h2>
+      <pre><code class="language-bash">pystamps verify \
+  --run /path/to/run_dataset \
+  --golden /path/to/reference_dataset</code></pre>
+      <p>The verifier checks artifact structure as well as numeric values. Read the full <a href="pipeline-science-guide.html">science guide</a> before adopting a speed profile.</p>
     </section>
 
     <section class="card">
-      <h2>First commands to learn</h2>
-      <ol>
-        <li>Inspect the dataset layout:</li>
-      </ol>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps status --dataset /path/to/run_dataset</code></pre>
-      <ol start="2">
-        <li>Check what a full run would do without writing outputs:</li>
-      </ol>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8 --dry-run</code></pre>
-      <ol start="3">
-        <li>Run a smaller stage range on a copy:</li>
-      </ol>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">cp -a /path/to/reference_dataset /path/to/run_dataset
-uv run pystamps run --dataset /path/to/run_dataset --start-step 6 --end-step 8</code></pre>
-      <p>Prepared datasets often contain prior outputs, so completed stages can report <span class="code-inline">skipped_existing</span>.</p>
+      <h2>Historical reference implementation</h2>
+      <p>The retained Python tree is an isolated development oracle. It is neither installed with nor called by the native command. Developers reproduce reference results only through explicit <span class="code-inline">make oracle-*</span> targets.</p>
     </section>
-
-    <section class="card">
-      <h2>Switch to optimized Rust/native kernels</h2>
-      <p>The CLI stays the same. You switch kernels through config.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-yaml">runtime:
-  backend: native
-  stage2_kernel_backend: native
-  stage2_native_threads: 0
-  kernel_backend_overrides:
-    stage2_clap_filter_kernel: native
-    stage2_grid_accumulate: native
-    stage2_grid_indices: native
-    stage2_histogram: native
-    stage2_normalize_complex: native
-    stage2_normalize_phase_matrix: native
-    stage2_ph_weight_block: native
-    stage2_topofit: native
-    stage2_topofit_coh_row_invariant: native
-    stage2_topofit_row_invariant: native
-    stage3_clap_filt_grid: native
-    stage3_clap_filt_grid_stack: native
-    stage3_clap_filt_patch: native
-    stage3_clap_filt_patch_stack: native
-    stage3_coh_threshold: native
-    stage3_select_ifg_index: native
-    stage3_wrap_filt: native
-    stage3_wrap_filt_global: native
-    stage4_adjacent_component_keep: native
-    stage4_duplicate_keep: native
-    stage4_edge_stats: native
-    stage4_phase_correction: native
-    stage4_weed_ifg_index: native
-    stage5_duplicate_keep: native
-    stage5_format_merged_rc2: native
-    stage5_ifg_std: native
-    stage5_patch_keep_mask: native
-    stage5_rc2_correction: native
-    stage6_estimate_la_error: native
-    stage6_extract_grid_values: native
-    stage6_grid_accumulate: native
-    stage6_prepare_cost_offsets: native
-    stage6_ps_grid_indices: native
-    stage6_reconstruct_ps_phase: native
-    stage6_select_ifgw: native
-    stage6_single_master_ifg_geometry: native
-    stage6_smooth_3d_full_single_master: native
-    stage6_unwrap_grid: native
-    stage6_unwrap_ifg_sets: native
-    stage7_center_to_reference: native
-    stage7_deramp_unwrapped_phase: native
-    stage7_mean_velocity_fit: native
-    stage7_scla: native
-    stage7_scla_smooth: native
-    stage8_edge_noise: native
-    stage8_weighted_lstsq: native
-    weighted_affine_fit: native
-    weighted_slope_fit: native
-  io_workers: 1
-  cpu_workers: 0
-  stage7_chunk_ps: 100000
-  stage8_chunk_edges: 200000</code></pre>
-      <p><span class="code-inline">backend: native</span> selects compiled Rust/CPU kernels and schedules them in-process. The validation profile uses one patch worker to avoid concurrent large MAT-file reads.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps --config configs/native-kernels.yaml run --dataset /path/to/run_dataset --start-step 2 --end-step 8</code></pre>
-      <p>Inside the activated <span class="code-inline">pystamps-rust</span> conda environment, run <span class="code-inline">pystamps</span> directly instead of prefixing the command with <span class="code-inline">uv run</span>.</p>
-      <div class="callout warning">Current local native status for the public HF test dataset: conda environment checks and native kernel build/test/import checks pass, prior Stage 8 native resume completed in 5222.5s with Stage 6 taking 5116.1s, and the current full-budget Stage 6 fixture timing is 1298.77s wall time with one thread or 876.86s wall time with default/max Rayon threads, about 1.48x faster by wall time. Reproduce the retained local fixture with STAGE6_FIXTURE_ROOT=inputs_and_outputs/validation_runs/stage6_fixture_minimal. Native output verification is not yet full-chain parity-clean: Stage 2 has a reduced strict residual on PATCH_1 with C_ps max 0.0005214810371398926, and Stage 6 still has modeled objective delta 66152. The retained Stage 6 SNAPHU-core fixture passes the opt-in stable dense-MSD gate with strict wrap agreement, but exact diff-not-zero dense MSD is not used as solver evidence because SNAPHU float32 output carries tiny nonzero differences on otherwise flat neighbor edges. Recent Stage 6 diagnostics show the remaining high-gain label islands are tiny favorable subregions inside much larger same-label plateaus; larger cut windows can cover them, but the retained side-256 run moved away from legacy dense-MSD parity despite lowering the modeled objective.</div>
-      <p>Use <span class="code-inline">python</span> to force reference kernels, <span class="code-inline">native</span> for compiled Rust/CPU kernels, and <span class="code-inline">cuda</span> where available.</p>
-      <p>If the copied dataset already has the expected outputs, the CLI skips those stages. Use a dataset copy that still needs the requested stage outputs, or use benchmark/direct-kernel examples to profile optimized kernels.</p>
-      <p>The public single-master test dataset is hosted at <a href="https://huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test/tree/main">huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test</a>.</p>
-      <p>The fetch target uses <span class="code-inline">huggingface_hub.snapshot_download</span>. Use <span class="code-inline">make fetch-insar-dataset HF_PYTHON=&quot;conda run -n pystamps-rust python&quot;</span> to force the conda interpreter.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make fetch-insar-dataset
-uv run pystamps verify --run /path/to/run_dataset --golden /path/to/reference_dataset
-make benchmark</code></pre>
-    </section>
-
-    <section class="diagram-card">
-      <h2>Execution map</h2>
-      <p>Short sequence: <span class="code-inline">status</span> → optional <span class="code-inline">--dry-run</span> → stage execution → <span class="code-inline">verify</span>.</p>
-    </section>
-
-    <section class="card">
-      <h2>When to use the repo-specific shortcuts</h2>
-      <p>The repository includes convenience targets such as <span class="code-inline">make test</span> and <span class="code-inline">make audit</span>. Use <a href="verification.html">Verification</a> for output comparison guidance when you move beyond execution-only workflows.</p>
-    </section>
-
-    <p class="footer">Next: follow <a href="quickstart.html">Quick Start</a> for a command-by-command workflow.</p>
   </main>
 </div>
 </body>

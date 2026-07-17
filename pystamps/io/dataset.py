@@ -18,7 +18,7 @@ MERGED_STAGE_ARTIFACTS: dict[int, str] = {
     5: "ifgstd2.mat",
     6: "phuw2.mat",
     7: "scla2.mat",
-    8: "uw_space_time.mat",
+    8: "scn2.mat",
 }
 
 
@@ -51,7 +51,10 @@ def discover_dataset(root: str | Path) -> DatasetLayout:
 
     if patch_list.exists():
         names = [line.strip() for line in patch_list.read_text(encoding="utf-8").splitlines() if line.strip()]
-        patches = [root_path / name for name in names if (root_path / name).is_dir()]
+        patches = [root_path / name for name in names]
+        missing = [name for name, patch in zip(names, patches) if not patch.is_dir()]
+        if missing:
+            raise DatasetError(f"patch.list references missing patch directories: {', '.join(missing)}")
     else:
         patches = sorted([p for p in root_path.iterdir() if p.is_dir() and p.name.startswith(PATCH_PREFIX)], key=_patch_sort_key)
 

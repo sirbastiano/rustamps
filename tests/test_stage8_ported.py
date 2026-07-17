@@ -75,14 +75,17 @@ def test_stage8_mean_velocity_payload_uses_degree_to_radian_weights(
     assert payload["m"].shape == (2, 2)
 
 
-def test_stage8_filter_scn_reruns_unwrap_and_writes_mean_velocity(monkeypatch: object, tmp_path: Path) -> None:
+def test_stage8_filter_scn_writes_legacy_scn2_without_rerunning_unwrap(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
     dataset_root = tmp_path / "dataset"
     dataset_root.mkdir()
-    for filename in ("ps2.mat", "scla2.mat", "scla_smooth2.mat", "uw_grid.mat", "uw_interp.mat", "parms.mat"):
+    for filename in ("ps2.mat", "phuw2.mat", "scla2.mat", "parms.mat"):
         (dataset_root / filename).touch()
 
     written: dict[str, dict[str, np.ndarray]] = {}
-    captured: dict[str, str] = {}
+    captured: dict[str, object] = {}
 
     def fake_resolve_file(root: Path, name: str) -> Path | None:
         if root == dataset_root and name == "parms.mat":
@@ -93,10 +96,8 @@ def test_stage8_filter_scn_reruns_unwrap_and_writes_mean_velocity(monkeypatch: o
         if path.name == "ps2.mat":
             return {
                 "n_ps": np.asarray(3.0),
-                "n_ifg": np.asarray(3.0),
                 "master_ix": np.asarray(2.0),
                 "day": np.asarray([1.0, 3.0, 6.0], dtype=np.float64),
-                "bperp": np.asarray([10.0, 0.0, 30.0], dtype=np.float64),
                 "xy": np.asarray(
                     [
                         [1.0, 0.0, 0.0],
@@ -105,25 +106,24 @@ def test_stage8_filter_scn_reruns_unwrap_and_writes_mean_velocity(monkeypatch: o
                     ],
                     dtype=np.float64,
                 ),
-                "mean_range": np.asarray(830000.0, dtype=np.float64),
-                "mean_incidence": np.asarray(np.deg2rad(23.0), dtype=np.float64),
             }
-        if path.name == "uw_grid.mat":
+        if path.name == "phuw2.mat":
             return {
-                "n_ps": np.asarray(3.0),
-                "ph": np.ones((3, 2), dtype=np.complex64),
+                "ph_uw": np.arange(9, dtype=np.float32).reshape(3, 3),
             }
-        if path.name == "uw_interp.mat":
-            return {"edgs": np.asarray([[1.0, 1.0, 2.0]], dtype=np.float64)}
+        if path.name == "scla2.mat":
+            return {
+                "ph_scla": np.ones((3, 3), dtype=np.float32),
+                "C_ps_uw": np.asarray([0.1, 0.2, 0.3], dtype=np.float32),
+                "ph_ramp": np.full((3, 3), 0.5, dtype=np.float64),
+            }
         if path.name == "parms.mat":
             return {
                 "small_baseline_flag": "n",
-                "unwrap_method": "3D",
-                "unwrap_la_error_flag": "y",
-                "unwrap_spatial_cost_func_flag": "n",
-                "max_topo_err": np.asarray(15.0, dtype=np.float64),
-                "lambda": np.asarray(0.0555, dtype=np.float64),
-                "unwrap_time_win": np.asarray(36.0, dtype=np.float64),
+                "drop_ifg_index": np.asarray([1], dtype=np.int64),
+                "scn_deramp_ifg": np.asarray([3], dtype=np.int64),
+                "scn_time_win": np.asarray(360.0),
+                "scn_wavelength": np.asarray(100.0),
             }
         raise AssertionError(f"unexpected cached read: {path}")
 
@@ -132,32 +132,29 @@ def test_stage8_filter_scn_reruns_unwrap_and_writes_mean_velocity(monkeypatch: o
 
     monkeypatch.setattr(ported, "_resolve_file", fake_resolve_file)
     monkeypatch.setattr(ported, "_read_mat_cached", fake_read_mat_cached)
-    monkeypatch.setattr(ported, "_stage8_mean_velocity_payload", lambda *args, **kwargs: {"m": np.asarray([[1.0], [2.0]], dtype=np.float32)})
-    monkeypatch.setattr(
-        ported,
-        "_compute_active_single_master_uw_space_time",
-        lambda *args, **kwargs: (
-            np.zeros((1, 1), dtype=np.float64),
-            np.zeros((1, 1), dtype=np.float64),
-            np.zeros((1, 1), dtype=np.float64),
-            np.zeros((1, 1), dtype=np.float64),
-            np.zeros((1, 1), dtype=np.float64),
-        ),
-    )
+    def fake_build_scn_payload(ph_uw: np.ndarray, xy: np.ndarray, day: np.ndarray, **kwargs: object):
+        captured.update({"ph_uw": ph_uw, "xy": xy, "day": day, **kwargs})
+        return {
+            "ph_scn_slave": np.zeros((3, 3), dtype=np.float64),
+            "ph_hpt": np.zeros((3, 2), dtype=np.float32),
+            "ph_ramp": np.zeros((3, 1), dtype=np.float64),
+        }
+
+    monkeypatch.setattr(ported, "build_scn_payload", fake_build_scn_payload)
     monkeypatch.setattr(ported, "write_mat", fake_write_mat)
     monkeypatch.setattr(ported, "_cache_mat_payload", lambda *args, **kwargs: None)
-    monkeypatch.setattr(ported, "stage7_calc_scla", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("stage7_calc_scla should not run")))
     monkeypatch.setattr(
         ported,
         "stage6_unwrap",
-        lambda dataset_root, backend, io_workers, enable_mat_cache, mat_cache, triangle_path=None, snaphu_path=None: captured.setdefault("backend", backend)
-        or "ok",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Stage 8 must not rerun Stage 6")),
     )
 
     result = ported.stage8_filter_scn(dataset_root, backend="python", enable_mat_cache=True, io_workers=0)
 
-    assert result == "Stage 8 produced mean velocity and space-time noise model for 1 arcs"
-    assert captured == {"backend": "python"}
-    assert "scla_smooth2.mat" not in written
-    assert set(written) == {"mean_v.mat", "uw_space_time.mat"}
-    np.testing.assert_allclose(written["mean_v.mat"]["m"], np.asarray([[1.0], [2.0]], dtype=np.float32), atol=0.0, rtol=0.0)
+    assert result == "Stage 8 estimated spatially correlated noise for 3 PS"
+    assert set(written) == {"scn2.mat"}
+    np.testing.assert_array_equal(captured["unwrap_indices"], np.asarray([1, 2]))
+    np.testing.assert_array_equal(captured["deramp_indices"], np.asarray([2]))
+    assert captured["master_index"] == 1
+    assert captured["time_window"] == 360.0
+    assert captured["wavelength"] == 100.0

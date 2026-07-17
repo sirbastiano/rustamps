@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+"""Developer-only historical-oracle fixture generator; not a production runner."""
+
 from __future__ import annotations
 
 import argparse
@@ -50,7 +52,7 @@ def _safe_reset(root: Path) -> Path:
 
 def _write_phase(path: Path, phase: np.ndarray) -> None:
     values = np.exp(1j * phase).astype(np.complex64).T
-    interleaved = np.empty((values.shape[0], values.shape[1] * 2), dtype="<f4")
+    interleaved = np.empty((values.shape[0], values.shape[1] * 2), dtype=">f4")
     interleaved[:, 0::2] = values.real
     interleaved[:, 1::2] = values.imag
     interleaved.tofile(path)
@@ -64,7 +66,7 @@ def prepare(root: Path) -> dict[str, Any]:
     col_f = col.reshape(-1).astype(np.float64)
     ids = np.arange(1, N_PS + 1, dtype=np.float64)
     ij = np.column_stack((ids, row_f + 20.0, col_f + 30.0))
-    lonlat = np.column_stack((12.40 + col_f * 0.00072, 41.90 + row_f * 0.00055)).astype("<f4")
+    lonlat = np.column_stack((12.40 + col_f * 0.00072, 41.90 + row_f * 0.00055)).astype(">f4")
 
     bperp = np.asarray([-120.0, -55.0, 25.0, 85.0, 145.0, 205.0], dtype=np.float64)
     topo = 0.0018 + 0.00035 * np.sin((row_f + 1.0) * 0.7) + 0.0002 * np.cos((col_f + 1.0) * 0.5)
@@ -110,6 +112,7 @@ def prepare(root: Path) -> dict[str, Any]:
             "unwrap_spatial_cost_func_flag": "n",
             "unwrap_time_win": np.asarray(36.0),
             "scla_deramp": "y",
+            "heading": np.asarray(190.0),
             "lambda": np.asarray(0.0555),
             "max_topo_err": np.asarray(15.0),
         },

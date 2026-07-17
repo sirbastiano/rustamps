@@ -2,45 +2,20 @@ from __future__ import annotations
 
 import re
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from .mt_prep_backend import native_export as _native_export, summary_from_payload as _summary_from_payload
+from .mt_prep_par import par_int as _par_int
+from .mt_prep_types import MtPrepSummary
+
 
 class MtPrepError(RuntimeError):
     """Raised when a SNAP StaMPS export cannot be prepared for pySTAMPS."""
 
-
-@dataclass(slots=True)
-class MtPrepSummary:
-    dataset_root: Path
-    patch_count: int
-    candidate_count: int
-    patch_rows: list[dict[str, Any]]
-
-
 _PAIR_RE = re.compile(r"(?P<master>\d{8})_(?P<slave>\d{8})")
-
-
-def _parse_par(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        if ":" not in raw:
-            continue
-        key, value = raw.split(":", 1)
-        values[key.strip()] = value.strip().split()[0] if value.strip() else ""
-    return values
-
-
-def _par_int(path: Path, *keys: str) -> int | None:
-    values = _parse_par(path)
-    for key in keys:
-        raw = values.get(key)
-        if raw:
-            return int(round(float(raw)))
-    return None
 
 
 def _dataset_shape(root: Path) -> tuple[int, int]:
@@ -59,7 +34,6 @@ def _dataset_shape(root: Path) -> tuple[int, int]:
     width_file.write_text(f"{width}\n", encoding="utf-8")
     len_file.write_text(f"{length}\n", encoding="utf-8")
     return width, length
-
 
 def _resolve_master(root: Path, master_date: str | None) -> str:
     if master_date:
@@ -113,23 +87,29 @@ def _candidate_arrays(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     sum_amp = np.zeros(shape, dtype=np.float64)
     sum_sq = np.zeros(shape, dtype=np.float64)
+    has_low_amp = np.zeros(shape, dtype=bool)
     for path in rslc_files:
         amp = np.abs(_memmap(path, ">c8", shape)).astype(np.float64)
-        sum_amp += amp
-        sum_sq += amp * amp
+        calibration_samples = amp[amp > 0.001]
+        calibration = float(np.mean(calibration_samples)) if calibration_samples.size else 0.0
+        with np.errstate(divide="ignore", invalid="ignore"):
+            normalized = amp / calibration
+        low_amp = normalized <= 0.00005
+        has_low_amp |= low_amp
+        sum_amp[low_amp] = 0.0
+        sum_amp[~low_amp] += normalized[~low_amp]
+        sum_sq[~low_amp] += normalized[~low_amp] * normalized[~low_amp]
 
     count = float(len(rslc_files))
-    mean_amp = sum_amp / count
-    var_amp = np.maximum(sum_sq / count - mean_amp * mean_amp, 0.0)
     with np.errstate(divide="ignore", invalid="ignore"):
-        da = np.sqrt(var_amp) / mean_amp
+        da = np.sqrt(np.maximum(count * sum_sq / (sum_amp * sum_amp) - 1.0, 0.0))
 
     lon = _memmap(root / "geo" / f"{master}.lon", ">f4", shape)
     lat = _memmap(root / "geo" / f"{master}.lat", ">f4", shape)
     hgt = _memmap(root / "geo" / "elevation_dem.rdc", ">f4", shape)
     finite_geo = np.isfinite(lon) & np.isfinite(lat) & np.isfinite(hgt)
-    mask = finite_geo & np.isfinite(da) & (mean_amp > 0.0) & (da <= float(amp_dispersion))
-    return mask, da.astype(np.float32), mean_amp.astype(np.float32)
+    mask = finite_geo & ~has_low_amp & np.isfinite(da) & (sum_amp > 0.0) & (da < float(amp_dispersion))
+    return mask, da.astype(np.float32), sum_amp.astype(np.float32)
 
 
 def _ranges(size: int, count: int, overlap: int) -> list[tuple[tuple[int, int], tuple[int, int]]]:
@@ -215,29 +195,24 @@ def _write_patch(
     lonlat = np.column_stack((rasters["lon"][rows, cols], rasters["lat"][rows, cols])).astype(">f4")
     lonlat.tofile(patch / "pscands.1.ll")
     np.asarray(rasters["hgt"][rows, cols], dtype=">f4").tofile(patch / "pscands.1.hgt")
-    np.asarray(rasters["mean_amp"][rows, cols], dtype=">f4").tofile(patch / "mean_amp.flt")
-    _write_text_vector(patch / "pscands.1.da", rasters["da"][rows, cols], "%.8g")
+    np.asarray(rasters["mean_amp"][r0 - 1 : r1, c0 - 1 : c1], dtype=np.float32).tofile(
+        patch / "mean_amp.flt"
+    )
+    _write_text_vector(patch / "pscands.1.da", rasters["da"][rows, cols], "%.8f")
     _write_phase(patch / "pscands.1.ph", diff_files, shape, rows, cols)
     return int(rows.size)
 
 
-def prepare_snap_mt_prep_inputs(
-    dataset_root: str | Path,
+def _prepare_snap_mt_prep_inputs_python(
+    root: Path,
     *,
-    master_date: str | None = None,
-    amp_dispersion: float = 0.4,
-    range_patches: int = 1,
-    azimuth_patches: int = 1,
-    range_overlap: int = 50,
-    azimuth_overlap: int = 50,
-    force: bool = False,
+    master_date: str | None,
+    amp_dispersion: float,
+    range_patches: int,
+    azimuth_patches: int,
+    range_overlap: int,
+    azimuth_overlap: int,
 ) -> MtPrepSummary:
-    root = Path(dataset_root).expanduser().resolve()
-    if not root.exists():
-        raise MtPrepError(f"Dataset root does not exist: {root}")
-    if force:
-        _remove_existing_patches(root)
-
     width, length = _dataset_shape(root)
     shape = (length, width)
     master = _resolve_master(root, master_date)
@@ -271,3 +246,47 @@ def prepare_snap_mt_prep_inputs(
         raise MtPrepError("No candidates passed the amplitude-dispersion threshold")
     (root / "patch.list").write_text("\n".join(names) + "\n", encoding="utf-8")
     return MtPrepSummary(root, len(names), int(sum(row["candidates"] for row in patch_rows)), patch_rows)
+
+
+def prepare_snap_mt_prep_inputs(
+    dataset_root: str | Path,
+    *,
+    master_date: str | None = None,
+    amp_dispersion: float = 0.4,
+    range_patches: int = 1,
+    azimuth_patches: int = 1,
+    range_overlap: int = 50,
+    azimuth_overlap: int = 50,
+    force: bool = False,
+    backend: str = "auto",
+) -> MtPrepSummary:
+    root = Path(dataset_root).expanduser().resolve()
+    if not root.exists():
+        raise MtPrepError(f"Dataset root does not exist: {root}")
+    if force:
+        _remove_existing_patches(root)
+
+    backend_name = backend.strip().lower()
+    if backend_name not in {"auto", "python", "native"}:
+        raise MtPrepError("Unsupported mt_prep backend. Use: auto, python, or native")
+
+    options = {
+        "master_date": master_date,
+        "amp_dispersion": float(amp_dispersion),
+        "range_patches": int(range_patches),
+        "azimuth_patches": int(azimuth_patches),
+        "range_overlap": int(range_overlap),
+        "azimuth_overlap": int(azimuth_overlap),
+    }
+    native_fn = None if backend_name == "python" else _native_export()
+    if native_fn is not None:
+        try:
+            payload = native_fn(str(root), **options)
+        except Exception as exc:
+            raise MtPrepError(str(exc)) from exc
+        return _summary_from_payload(root, payload)
+
+    if backend_name == "native":
+        raise MtPrepError("Native mt_prep backend requested but pystamps.kernels._stage2_native does not export it")
+
+    return _prepare_snap_mt_prep_inputs_python(root, **options)

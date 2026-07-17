@@ -1,0 +1,102 @@
+name: Portable Rust installation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: 1.89.0
+
+concurrency:
+  group: portable-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: Linux ARM64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: Linux musl x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+          - name: Linux musl ARM64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+          - name: macOS Intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: macOS Apple Silicon
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - name: Windows x86_64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - name: Windows ARM64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install minimum supported Rust
+        run: rustup toolchain install ${{ env.RUST_VERSION }} --profile minimal
+
+      - name: Select minimum supported Rust
+        run: rustup default ${{ env.RUST_VERSION }}
+
+      - name: Install target standard library
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Use the bundled linker for musl
+        if: contains(matrix.target, 'musl')
+        run: echo 'RUSTFLAGS=-C linker=rust-lld' >> "$GITHUB_ENV"
+
+      - name: Install rustfmt
+        if: matrix.name == 'Linux x86_64'
+        run: rustup component add rustfmt
+
+      - name: Check formatting
+        if: matrix.name == 'Linux x86_64'
+        run: cargo fmt --all -- --check
+
+      - name: Test workspace
+        run: cargo test --workspace --all-targets --locked --target ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Install from checkout
+        run: cargo install --path . --locked --target ${{ matrix.target }}
+        env:
+          CARGO_INSTALL_ROOT: ${{ runner.temp }}/pystamps-install
+
+      - name: Smoke-test installed binary
+        if: runner.os != 'Windows'
+        run: |
+          "$RUNNER_TEMP/pystamps-install/bin/pystamps" --version
+          "$RUNNER_TEMP/pystamps-install/bin/pystamps" describe-backends
+
+      - name: Smoke-test installed Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $binary = Join-Path $env:RUNNER_TEMP "pystamps-install\bin\pystamps.exe"
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $binary describe-backends
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,0 +1,80 @@
+schema_version: 1
+
+context:
+  version: "0.2.0"
+  source_url: ${{ env.get("PYSTAMPS_SOURCE_URL", default="") }}
+  source_sha256: ${{ env.get("PYSTAMPS_SOURCE_SHA256", default="") }}
+
+package:
+  name: pystamps
+  version: ${{ version }}
+
+source:
+  - if: source_url == ""
+    then:
+      - path: ..
+        use_gitignore: true
+  - if: source_url != ""
+    then:
+      - url: ${{ source_url }}
+        sha256: ${{ source_sha256 }}
+
+build:
+  number: 0
+  script:
+    env:
+      CARGO_PROFILE_RELEASE_LTO: thin
+      CARGO_PROFILE_RELEASE_STRIP: symbols
+    content:
+      - if: unix
+        then:
+          - cargo auditable install --locked --no-track --bins --root ${{ PREFIX }} --path .
+        else:
+          - cargo auditable install --locked --no-track --bins --root %LIBRARY_PREFIX% --path .
+      - cargo-bundle-licenses --format yaml --output ./THIRDPARTY.yml
+
+requirements:
+  build:
+    - ${{ stdlib("c") }}
+    - ${{ compiler("c") }}
+    - ${{ compiler("rust") }}
+    - cargo-auditable
+    - cargo-bundle-licenses
+
+tests:
+  - script:
+      - pystamps --version
+      - pystamps --help
+      - pystamps describe-backends
+      - if: unix
+        then:
+          - test "$(pystamps --version)" = "pystamps 0.2.0"
+          - "pystamps describe-backends | grep -F '\"runtime_external_dependencies\": []'"
+        else:
+          - >-
+            powershell -NoProfile -Command "$version = (& pystamps --version | Out-String).Trim();
+            if ($version -ne 'pystamps 0.2.0') { exit 1 };
+            $data = (& pystamps describe-backends | Out-String | ConvertFrom-Json);
+            $property = $data.PSObject.Properties['runtime_external_dependencies'];
+            if ($null -eq $property -or -not ($property.Value -is [System.Array]) -or $property.Value.Count -ne 0) { exit 1 }"
+  - package_contents:
+      bin:
+        - pystamps
+      strict: true
+
+about:
+  homepage: https://github.com/sirbastiano/pystamps
+  summary: Standalone Rust implementation of the StaMPS persistent-scatterer workflow
+  description: |
+    pySTAMPS provides the complete StaMPS persistent-scatterer processing
+    pipeline as a native Rust command-line application with no Python,
+    SNAPHU, or system HDF5 runtime dependency.
+  license: Apache-2.0
+  license_file:
+    - LICENSE
+    - THIRDPARTY.yml
+  repository: https://github.com/sirbastiano/pystamps
+
+extra:
+  recipe-maintainers:
+    - sirbastiano

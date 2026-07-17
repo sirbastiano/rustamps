@@ -15,7 +15,9 @@ __pycache__/
 /.codex/
 /.ralph/
 /AGENTS.md
-/.github/
+/.github/*
+!/.github/workflows/
+!/.github/workflows/**
 /PLANS.md
 /.agent-memory/
 /.build-deps/
@@ -33,14 +35,12 @@ __pycache__/
 
 # Large repo-only assets not shipped in the package
 /build/
+/dist/
+/dist-conda/
+/output/
 inputs_and_outputs/
 tmp/
 StaMPS/
-
-# Keep release artifacts visible in this repo
-!dist/
-!dist/*.whl
-!dist/*.tar.gz
 
 .cache/
 summary_final_report.md

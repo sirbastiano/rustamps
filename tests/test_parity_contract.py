@@ -32,6 +32,10 @@ def test_build_parity_contract_without_datasets(tmp_path: Path) -> None:
     assert "full_validation" in contract["workflows"]
     assert contract["workflows"]["full_validation"]["driver"] == "scripts/validate_audit.py"
     assert contract["workflows"]["full_validation"]["output_artifact"] == "inputs_and_outputs/validation_runs/latest_audit.json"
+    stage6_8_patterns = contract["workflows"]["stage6_8"]["verify_patterns"]
+    assert "uw_space_time.mat" in stage6_8_patterns
+    assert "scn2.mat" in stage6_8_patterns
+    assert "mean_v.mat" not in stage6_8_patterns
     assert contract["oracle_contract_manifest_path"] == "pystamps/data/oracle_contract.json"
     assert contract["audited_workflow_manifest_path"] == "pystamps/data/audited_workflow_manifest.json"
 

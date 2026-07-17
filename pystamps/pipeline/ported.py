@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -16,11 +17,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from scipy import sparse, spatial
+from scipy import spatial
 from scipy import signal
 
 from pystamps.config import ConfigError, normalize_kernel_backend, normalize_stage2_kernel_backend
 from pystamps.io.mat import read_mat, write_mat
+from pystamps.pipeline.scn import build_scn_payload
 from pystamps.kernels import (
     BackendUnavailableError,
     run_stage4_edge_stats_kernel,
@@ -80,7 +82,7 @@ _CANONICAL_STAGE2_WEIGHTING_SNAPSHOT = Path("inputs_and_outputs/validation_runs/
 # Bump when any stage-2 semantics change that can affect the downstream use of
 # the cached random baseline histogram, otherwise old Nr/Nr_max_nz_ix values can
 # outlive parity fixes and poison later reruns.
-_STAGE2_RANDOM_HIST_CACHE_VERSION = 16
+_STAGE2_RANDOM_HIST_CACHE_VERSION = 17
 _STAGE2_TOPOFIT_NEAR_MAX_COH_TOL = 2.0e-4
 
 
@@ -91,7 +93,7 @@ class StageOptions:
     clap_low_pass_wavelength: float = 800.0
     clap_alpha: float = 1.0
     clap_beta: float = 0.3
-    max_topo_err: float = 15.0
+    max_topo_err: float = 20.0
     lambda_m: float = 0.0555
     mean_range: float = 830000.0
     mean_incidence: float = np.deg2rad(23.0)
@@ -99,18 +101,21 @@ class StageOptions:
 
 @dataclass(slots=True)
 class Parms:
-    select_method: str = "PERCENT"
-    percent_rand: float = 1.0
-    density_rand: float = 1.0
+    select_method: str = "DENSITY"
+    percent_rand: float = 20.0
+    density_rand: float = 20.0
     small_baseline_flag: str = "n"
+    quick_est_gamma_flag: str = "y"
+    select_reest_gamma_flag: str = "y"
     drop_ifg_index: np.ndarray = field(default_factory=lambda: np.asarray([], dtype=np.int64))
-    weed_standard_dev: float = np.pi
-    weed_max_noise: float = np.pi
+    weed_standard_dev: float = 1.0
+    weed_max_noise: float = np.inf
     weed_zero_elevation: str = "n"
-    weed_neighbours: str = "y"
+    weed_neighbours: str = "n"
     gamma_stdev_reject: float = 0.0
     slc_osf: float = 1.0
-    weed_time_win: float = 360.0
+    weed_time_win: float = 730.0
+    merge_resample_size: float = 0.0
 
 
 @dataclass(slots=True)
@@ -469,6 +474,15 @@ def _format_merged_rc2_payload(rc2_all: np.ndarray) -> np.ndarray:
     return payload
 
 
+def _format_merged_rc2_mat_payload(rc2_all: np.ndarray, *, backend: str) -> np.ndarray:
+    payload = np.asarray(run_stage5_format_merged_rc2_kernel(rc2_all, backend=backend))
+    # The shared kernel contract is interferogram-major; StaMPS rc2.mat is
+    # PS-major, so restore the MAT-file orientation at the write boundary.
+    if payload.ndim == 2:
+        payload = np.ascontiguousarray(payload.T)
+    return payload
+
+
 def _load_text_matrix(path: Path, dtype=float) -> np.ndarray:
     values = np.loadtxt(path, dtype=dtype)
     if isinstance(values, np.ndarray):
@@ -569,15 +583,30 @@ def _matlab_empty(
     return np.empty((0, cols), dtype=dtype)
 
 
+def _load_effective_parms_raw(patch_dir: Path) -> dict[str, Any]:
+    raw: dict[str, Any] = {}
+    parms_file = _resolve_file(patch_dir, "parms.mat")
+    if parms_file is not None:
+        try:
+            raw.update(read_mat(parms_file))
+        except Exception:
+            pass
+
+    # StaMPS getparm.m applies localparms.mat from the current processing
+    # directory after parms.mat, so local values have higher precedence.
+    localparms_file = patch_dir / "localparms.mat"
+    if localparms_file.exists():
+        try:
+            raw.update(read_mat(localparms_file))
+        except Exception:
+            pass
+    return raw
+
+
 def _build_stage_options(patch_dir: Path) -> StageOptions:
     options = StageOptions()
-    parms_file = _resolve_file(patch_dir, "parms.mat")
-    if parms_file is None:
-        return options
-
-    try:
-        parms = read_mat(parms_file)
-    except Exception:
+    parms = _load_effective_parms_raw(patch_dir)
+    if not parms:
         return options
 
     options.grid_size = _mat_scalar(parms.get("filter_grid_size", options.grid_size), options.grid_size)
@@ -603,28 +632,37 @@ def _normalize_drop_index(value: Any) -> np.ndarray:
 
 
 def _load_parms(patch_dir: Path) -> Parms:
-    parms_file = _resolve_file(patch_dir, "parms.mat")
-    if parms_file is None:
+    raw = _load_effective_parms_raw(patch_dir)
+    if not raw:
         return Parms()
 
-    try:
-        raw = read_mat(parms_file)
-    except Exception:
-        return Parms()
+    small_baseline_flag = _mat_text(raw.get("small_baseline_flag", "n"), "n")
+    is_small_baseline = small_baseline_flag.lower() == "y"
+    density_rand_default = 2.0 if is_small_baseline else 20.0
+    percent_rand_default = 1.0 if is_small_baseline else 20.0
+    weed_standard_dev_default = np.inf if is_small_baseline else 1.0
+    merge_resample_size_default = 100.0 if is_small_baseline else 0.0
 
     return Parms(
-        select_method=_mat_text(raw.get("select_method", "PERCENT"), "PERCENT"),
-        percent_rand=_mat_scalar(raw.get("percent_rand", 1.0), 1.0),
-        density_rand=_mat_scalar(raw.get("density_rand", 1.0), 1.0),
-        small_baseline_flag=_mat_text(raw.get("small_baseline_flag", "n"), "n"),
+        select_method=_mat_text(raw.get("select_method", "DENSITY"), "DENSITY"),
+        percent_rand=_mat_scalar(raw.get("percent_rand", percent_rand_default), percent_rand_default),
+        density_rand=_mat_scalar(raw.get("density_rand", density_rand_default), density_rand_default),
+        small_baseline_flag=small_baseline_flag,
+        quick_est_gamma_flag=_mat_text(raw.get("quick_est_gamma_flag", "y"), "y"),
+        select_reest_gamma_flag=_mat_text(raw.get("select_reest_gamma_flag", "y"), "y"),
         drop_ifg_index=_normalize_drop_index(raw.get("drop_ifg_index", None)),
-        weed_standard_dev=_mat_scalar(raw.get("weed_standard_dev", np.pi), np.pi),
-        weed_max_noise=_mat_scalar(raw.get("weed_max_noise", np.pi), np.pi),
+        weed_standard_dev=_mat_scalar(
+            raw.get("weed_standard_dev", weed_standard_dev_default), weed_standard_dev_default
+        ),
+        weed_max_noise=_mat_scalar(raw.get("weed_max_noise", np.inf), np.inf),
         weed_zero_elevation=_mat_text(raw.get("weed_zero_elevation", "n"), "n"),
-        weed_neighbours=_mat_text(raw.get("weed_neighbours", "y"), "y"),
+        weed_neighbours=_mat_text(raw.get("weed_neighbours", "n"), "n"),
         gamma_stdev_reject=_mat_scalar(raw.get("gamma_stdev_reject", 0.0), 0.0),
         slc_osf=_mat_scalar(raw.get("slc_osf", 1.0), 1.0),
-        weed_time_win=_mat_scalar(raw.get("weed_time_win", 360.0), 360.0),
+        weed_time_win=_mat_scalar(raw.get("weed_time_win", 730.0), 730.0),
+        merge_resample_size=_mat_scalar(
+            raw.get("merge_resample_size", merge_resample_size_default), merge_resample_size_default
+        ),
     )
 
 
@@ -1809,7 +1847,7 @@ def _load_triangle_edges(edge_path: Path, n_nodes: int) -> np.ndarray:
 
 def _triangle_node_file_matches(node_path: Path, points: np.ndarray) -> bool:
     if not node_path.exists():
-        return True
+        return False
 
     pts = np.asarray(points, dtype=np.float64)
     try:
@@ -2189,7 +2227,7 @@ def _compute_active_single_master_uw_space_time(
         )
     except BackendUnavailableError as exc:
         raise PortedStageError(str(exc)) from exc
-    bad_noise = np.std(dph_noise, axis=1, ddof=1 if dph_noise.shape[1] > 1 else 0) > 1.2
+    bad_noise = np.std(dph_noise, axis=1, ddof=1 if dph_noise.shape[1] > 1 else 0) > 1.3
     dph_noise[bad_noise, :] = np.nan
     dph_space_uw = dph_smooth_uw + dph_noise + (K[:, None] * bperp_arr[None, :]).astype(np.float32)
     return G, dph_space, dph_smooth_uw, dph_noise, dph_space_uw
@@ -2674,6 +2712,13 @@ def _ps_topofit_batch(
 
 def _as_ps_matrix(values: Any, n_ps: int, name: str) -> np.ndarray:
     arr = np.asarray(values)
+    if arr.ndim == 0 and n_ps == 1:
+        return arr.reshape(1, 1)
+    if arr.ndim == 1:
+        if n_ps == 1:
+            return arr.reshape(1, -1)
+        if arr.size == n_ps:
+            return arr.reshape(n_ps, 1)
     if arr.ndim != 2:
         raise PortedStageError(f"{name} must be a 2-D matrix")
     if arr.shape[0] == n_ps:
@@ -2691,6 +2736,13 @@ def _stage2_bperp_mat_from_mat(values: Any, n_ps: int, name: str) -> np.ndarray:
 
 def _as_ps_ifg_complex(values: Any, n_ps: int, name: str) -> np.ndarray:
     arr = _coerce_complex(values)
+    if arr.ndim == 0 and n_ps == 1:
+        return arr.reshape(1, 1).astype(np.complex64)
+    if arr.ndim == 1:
+        if n_ps == 1:
+            return arr.reshape(1, -1).astype(np.complex64)
+        if arr.size == n_ps:
+            return arr.reshape(n_ps, 1).astype(np.complex64)
     if arr.ndim != 2:
         raise PortedStageError(f"{name} must be a 2-D matrix")
     if arr.shape[0] == n_ps:
@@ -3083,6 +3135,13 @@ def _maybe_resolve_external_tool(tool_name: str, configured_path: str | None = N
         which = shutil.which(tool_name)
         if which is not None:
             return which
+    if tool_name == "snaphu":
+        try:
+            package_spec = importlib.util.find_spec("snaphu")
+        except (ImportError, ValueError):
+            package_spec = None
+        if package_spec is not None and package_spec.submodule_search_locations:
+            candidates.extend(Path(location) / "snaphu" for location in package_spec.submodule_search_locations)
     for candidate in candidates:
         if candidate.exists() and os.access(candidate, os.X_OK):
             return str(candidate.resolve())
@@ -3095,6 +3154,32 @@ def _resolve_external_tool(tool_name: str, configured_path: str | None = None) -
         detail = configured_path if configured_path else tool_name
         raise PortedStageError(f"Required external tool '{tool_name}' is not available (configured as {detail!r})")
     return resolved
+
+
+def _select_stage6_unwrap_solver(
+    backend_name: str,
+    snaphu_path: str | None,
+    solver: str = "backend",
+) -> tuple[bool, str | None]:
+    solver_name = str(solver or "backend").strip().lower()
+    if solver_name == "native":
+        return False, None
+    if solver_name in {"snaphu", "external"}:
+        return True, _resolve_external_tool("snaphu", snaphu_path)
+    if solver_name == "auto":
+        snaphu_exe = _maybe_resolve_external_tool("snaphu", snaphu_path)
+        return snaphu_exe is not None, snaphu_exe
+    if solver_name != "backend":
+        raise PortedStageError(
+            f"Unsupported Stage 6 solver '{solver}'. Use: auto, native, snaphu, or backend"
+        )
+    legacy_backends = {"python", "threads", "thread", "io", "processes", "process", "cpu"}
+    if backend_name in legacy_backends:
+        return True, _resolve_external_tool("snaphu", snaphu_path)
+    if backend_name == "auto":
+        snaphu_exe = _maybe_resolve_external_tool("snaphu", snaphu_path)
+        return snaphu_exe is not None, snaphu_exe
+    return False, None
 
 
 def _write_complex_raster(path: Path, values: np.ndarray) -> None:
@@ -3287,6 +3372,18 @@ def _stage1_heading_deg(patch_dir: Path) -> float | None:
         return None
 
 
+def _stage1_unsupported_spatial_inputs(patch_dir: Path) -> list[Path]:
+    found: dict[Path, None] = {}
+    for root in (patch_dir, patch_dir.parent):
+        look_angle_file = root / "look_angle.1.in"
+        if look_angle_file.exists():
+            found[look_angle_file.resolve()] = None
+        for bperp_file in root.glob("bperp_*.1.in"):
+            if bperp_file.is_file():
+                found[bperp_file.resolve()] = None
+    return list(found)
+
+
 def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
     required = {
         "ij": patch_dir / "pscands.1.ij",
@@ -3296,6 +3393,14 @@ def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
     missing = [name for name, path in required.items() if not path.exists()]
     if missing:
         raise PortedStageError(f"Missing stage-1 patch inputs: {', '.join(missing)}")
+
+    unsupported_spatial_inputs = _stage1_unsupported_spatial_inputs(patch_dir)
+    if unsupported_spatial_inputs:
+        names = ", ".join(path.name for path in unsupported_spatial_inputs)
+        raise PortedStageError(
+            "Stage 1 cannot safely consume legacy spatial look-angle/per-interferogram baseline inputs "
+            f"({names}); their per-pixel interpolation is not implemented"
+        )
 
     ij = _load_text_matrix(required["ij"], dtype=np.float64)
     if ij.ndim == 1:
@@ -3309,6 +3414,7 @@ def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
         raise PortedStageError("Stage 1 requires metadata files not found near patch: " + ", ".join(metadata_missing))
 
     metadata = resolve_stage1_metadata(patch_dir, ij)
+    input_has_master = False
     if metadata.day_full is not None and metadata.master_day is not None and metadata.master_ix is not None:
         day_full = np.asarray(metadata.day_full, dtype=np.float64).reshape(-1)
         bperp_full = np.asarray(metadata.bperp_full, dtype=np.float64).reshape(-1)
@@ -3346,11 +3452,20 @@ def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
         day_ix = np.argsort(slave_day)
         slave_day = slave_day[day_ix]
         master_day = _yyyymmdd_to_ordinal(np.asarray([master_day_yyyymmdd], dtype=np.int64))[0]
-        master_ix = int(np.sum(slave_day < master_day)) + 1  # MATLAB-compatible 1-based index
-
-        day_full = np.insert(slave_day, master_ix - 1, master_day)
         bperp_sorted = bperp[day_ix]
-        bperp_full = np.insert(bperp_sorted, master_ix - 1, 0.0).astype(np.float32)
+        master_matches = np.flatnonzero(slave_day == master_day)
+        if master_matches.size > 1:
+            raise PortedStageError("Stage 1 metadata contains duplicate master-day interferograms")
+        input_has_master = master_matches.size == 1
+        master_ix = int(master_matches[0]) + 1 if input_has_master else int(np.sum(slave_day < master_day)) + 1
+
+        if input_has_master:
+            day_full = slave_day
+            bperp_full = bperp_sorted.astype(np.float32)
+            bperp_full[master_ix - 1] = 0.0
+        else:
+            day_full = np.insert(slave_day, master_ix - 1, master_day)
+            bperp_full = np.insert(bperp_sorted, master_ix - 1, 0.0).astype(np.float32)
 
     ph = _load_complex_columns(required["ph"], n_ps)
     if ph.shape[1] != day_ix.size:
@@ -3358,20 +3473,35 @@ def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
             f"Stage 1 interferogram count mismatch: ph has {ph.shape[1]} columns but metadata has {day_ix.size} entries"
         )
     ph = ph[:, day_ix]
-    ph = np.insert(ph, master_ix - 1, 1.0 + 0.0j, axis=1).astype(np.complex64)
+    if input_has_master:
+        ph[:, master_ix - 1] = 1.0 + 0.0j
+        ph = ph.astype(np.complex64, copy=False)
+    else:
+        ph = np.insert(ph, master_ix - 1, 1.0 + 0.0j, axis=1).astype(np.complex64)
 
     lonlat_raw = _load_binary_float32(required["ll"], "lonlat")
-    lonlat = lonlat_raw.reshape(-1, 2).astype(np.float64)
-    xy_local, ll0 = _local_xy_from_lonlat(lonlat, heading_deg=_stage1_heading_deg(patch_dir))
+    if lonlat_raw.size != n_ps * 2:
+        raise PortedStageError(
+            f"Stage 1 lonlat count mismatch: expected {n_ps} rows but found {lonlat_raw.size // 2}"
+        )
+    lonlat = lonlat_raw.reshape(n_ps, 2).astype(np.float64)
+    valid_input = ~np.any(np.isnan(lonlat), axis=1) & ~np.any(np.isnan(ph), axis=1)
+    if not np.any(valid_input):
+        raise PortedStageError("Stage 1 has no candidates after removing NaN lonlat/phase rows")
+    valid_input_ix = np.flatnonzero(valid_input)
+    lonlat_valid = lonlat[valid_input_ix]
+    xy_local, ll0 = _local_xy_from_lonlat(lonlat_valid, heading_deg=_stage1_heading_deg(patch_dir))
 
     xy_sort = np.asarray(xy_local, dtype=np.float32)
-    sort_ix = np.lexsort((xy_sort[:, 0], xy_sort[:, 1]))
+    valid_sort_ix = np.lexsort((xy_sort[:, 0], xy_sort[:, 1]))
+    sort_ix = valid_input_ix[valid_sort_ix]
+    n_ps_out = sort_ix.size
     ij_sorted = ij[sort_ix].copy()
-    ij_sorted[:, 0] = np.arange(1, n_ps + 1)
+    ij_sorted[:, 0] = np.arange(1, n_ps_out + 1)
 
     lonlat_sorted = lonlat[sort_ix]
-    xy_sorted = _quantize_xy_millimeters(xy_sort[sort_ix])
-    xy_out = np.column_stack((np.arange(1, n_ps + 1), xy_sorted)).astype(np.float32)
+    xy_sorted = _quantize_xy_millimeters(xy_sort[valid_sort_ix])
+    xy_out = np.column_stack((np.arange(1, n_ps_out + 1), xy_sorted)).astype(np.float32)
 
     ph_sorted = ph[sort_ix]
 
@@ -3392,7 +3522,7 @@ def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
         "master_ix": np.asarray(master_ix, dtype=np.float64),
         "n_ifg": np.asarray(ph_sorted.shape[1], dtype=np.float64),
         "n_image": np.asarray(ph_sorted.shape[1], dtype=np.float64),
-        "n_ps": np.asarray(n_ps, dtype=np.float64),
+        "n_ps": np.asarray(n_ps_out, dtype=np.float64),
         "sort_ix": (sort_ix + 1).astype(np.float64),
         "ll0": ll0.astype(np.float64),
         "mean_range": np.asarray(mean_range, dtype=np.float64),
@@ -3414,14 +3544,23 @@ def stage1_load_initial(patch_dir: Path, backend: str = "auto") -> str:
         write_mat(patch_dir / "hgt1.mat", {"hgt": hgt.astype(np.float32)})
 
     if metadata.bperp_mat is not None:
-        bperp_mat = np.asarray(metadata.bperp_mat[:, day_ix], dtype=np.float32)[sort_ix]
+        source_bperp_mat = np.asarray(metadata.bperp_mat, dtype=np.float32)
+        if source_bperp_mat.ndim != 2 or source_bperp_mat.shape != (n_ps, day_ix.size):
+            raise PortedStageError(
+                f"Stage 1 per-pixel baseline shape {source_bperp_mat.shape} does not match "
+                f"{n_ps} candidates and {day_ix.size} input interferograms"
+            )
+        source_bperp_mat = source_bperp_mat[:, day_ix]
+        if input_has_master:
+            source_bperp_mat = np.delete(source_bperp_mat, master_ix - 1, axis=1)
+        bperp_mat = source_bperp_mat[sort_ix]
     else:
         no_master = np.arange(ph_sorted.shape[1]) != (master_ix - 1)
         bperp_nomaster = bperp_full[no_master]
-        bperp_mat = np.tile(bperp_nomaster, (n_ps, 1)).astype(np.float32)
+        bperp_mat = np.tile(bperp_nomaster, (n_ps_out, 1)).astype(np.float32)
     write_mat(patch_dir / "bp1.mat", {"bperp_mat": bperp_mat})
 
-    return f"Stage 1 created ps1/ph1 for {n_ps} candidates"
+    return f"Stage 1 created ps1/ph1 for {n_ps_out} candidates"
 
 
 def _build_low_pass(options: StageOptions) -> np.ndarray:
@@ -3531,8 +3670,7 @@ def _stage2_prepare_replay_context(
     native_threads: int = 0,
 ) -> _Stage2ReplayContext:
     ps = read_mat(patch_dir / "ps1.mat")
-    parms_file = _resolve_file(patch_dir, "parms.mat")
-    parms_raw = read_mat(parms_file) if parms_file is not None else {}
+    parms_raw = _load_effective_parms_raw(patch_dir)
     parms = _load_parms(patch_dir)
     n_ps = int(round(_mat_scalar(ps.get("n_ps", 0), 0)))
     if n_ps <= 0:
@@ -3574,7 +3712,7 @@ def _stage2_prepare_replay_context(
 
     options = _build_stage_options(patch_dir)
     grid_size = float(_mat_scalar(parms_raw.get("filter_grid_size", options.grid_size), options.grid_size))
-    filter_weighting = str(parms_raw.get("filter_weighting", "P-square"))
+    filter_weighting = _mat_text(parms_raw.get("filter_weighting", "P-square"), "P-square")
     clap_window = int(round(options.clap_win * 0.75))
     clap_pad = int(round(options.clap_win * 0.25))
     xy = _as_ps_dim(ps.get("xy"), n_ps, 3, "ps1.xy").astype(np.float32)
@@ -3664,9 +3802,7 @@ def _stage2_replay_iteration_from_payload(
     ph_patch = ph_patch_all[selected_rows, :].copy()
     psdph = np.conjugate(ph_patch)
     psdph *= context.ph_nm[selected_rows, :].astype(np.complex128)
-    # Match the live stage-2 path: partially zero rows still go through the
-    # batch wrapper, which falls back to the single-row solve for those rows.
-    valid = np.any(psdph != 0, axis=1)
+    valid = np.all(psdph != 0, axis=1)
 
     K_ps = np.full(selected_rows.size, np.nan, dtype=np.float64)
     C_ps = np.zeros(selected_rows.size, dtype=np.float64)
@@ -3762,8 +3898,7 @@ def stage2_estimate_gamma(
 ) -> str:
     stage2_t0 = time.perf_counter()
     ps = read_mat(patch_dir / "ps1.mat")
-    parms_file = _resolve_file(patch_dir, "parms.mat")
-    parms_raw = read_mat(parms_file) if parms_file is not None else {}
+    parms_raw = _load_effective_parms_raw(patch_dir)
     parms = _load_parms(patch_dir)
     n_ps = int(round(_mat_scalar(ps.get("n_ps", 0), 0)))
     if n_ps <= 0:
@@ -3818,7 +3953,7 @@ def stage2_estimate_gamma(
 
     options = _build_stage_options(patch_dir)
     grid_size = float(_mat_scalar(parms_raw.get("filter_grid_size", options.grid_size), options.grid_size))
-    filter_weighting = str(parms_raw.get("filter_weighting", "P-square"))
+    filter_weighting = _mat_text(parms_raw.get("filter_weighting", "P-square"), "P-square")
     kernel_backend_norm = _normalize_stage2_kernel_backend(kernel_backend)
     kernel_backend_overrides_norm = _normalize_kernel_backend_override_map(kernel_backend_overrides)
     native_threads_norm = _normalize_stage2_native_threads(native_threads)
@@ -3843,9 +3978,9 @@ def stage2_estimate_gamma(
     n_ifg = ph_nm.shape[1]
 
     gamma_change_convergence = float(
-        _mat_scalar(parms_raw.get("gamma_change_convergence", 1e-4), 1e-4)
+        _mat_scalar(parms_raw.get("gamma_change_convergence", 0.005), 0.005)
     )
-    gamma_max_iterations = int(round(_mat_scalar(parms_raw.get("gamma_max_iterations", 25.0), 25.0)))
+    gamma_max_iterations = int(round(_mat_scalar(parms_raw.get("gamma_max_iterations", 3.0), 3.0)))
     clap_window = int(round(options.clap_win * 0.75))
     clap_pad = int(round(options.clap_win * 0.25))
 
@@ -4225,9 +4360,7 @@ def stage2_estimate_gamma(
             stop = min(start + stage2_row_chunk, n_ps)
             psdph_chunk = np.conjugate(ph_patch[start:stop, :]).astype(np.complex64)
             psdph_chunk *= ph_nm[start:stop, :]
-            # Preserve partially zero rows for `_ps_topofit_batch`, which
-            # mirrors MATLAB by recomputing those rows via the single-row path.
-            valid_chunk = np.any(psdph_chunk != 0, axis=1)
+            valid_chunk = np.all(psdph_chunk != 0, axis=1)
             valid_rows[start:stop] = valid_chunk
             if not np.any(valid_chunk):
                 continue
@@ -4453,7 +4586,9 @@ def stage3_select_ps(patch_dir: Path, backend: str = "auto") -> str:
     if D_A.size >= 10000:
         D_A_sort = np.sort(D_A)
         bin_size = 10000 if D_A.size >= 50000 else 2000
-        D_A_max = np.concatenate(([0.0], D_A_sort[bin_size : D_A.size - bin_size : bin_size], [D_A_sort[-1]]))
+        D_A_max = np.concatenate(
+            ([0.0], D_A_sort[bin_size - 1 : D_A.size - bin_size : bin_size], [D_A_sort[-1]])
+        )
     else:
         D_A_max = np.asarray([0.0, 1.0], dtype=np.float64)
         D_A = np.ones_like(coh_ps, dtype=np.float64)
@@ -4523,24 +4658,39 @@ def stage3_select_ps(patch_dir: Path, backend: str = "auto") -> str:
         ix_mask_reject = coh_std < float(parms.gamma_stdev_reject)
         ix = ix[ix_mask_reject]
         ix0 = ix - 1
+        ph_patch2 = ph_patch[ix0, :].astype(np.complex64, copy=True)
+        ph_res2 = ph_res[ix0, :].astype(np.float32, copy=True)
+        K_ps2 = K_ps[ix0].astype(np.float64, copy=True)
+        C_ps2 = C_ps[ix0].astype(np.float64, copy=True)
+        coh_ps2 = coh_ps[ix0].astype(np.float64, copy=True)
+        keep_ix = np.ones(ix.size, dtype=bool)
 
-    if ix.size > 0:
+    reestimate_requested = (
+        parms.quick_est_gamma_flag.lower() == "y" and parms.select_reest_gamma_flag.lower() == "y"
+    )
+    debug_payload["reestimate_requested"] = reestimate_requested
+    if ix.size > 0 and reestimate_requested:
         reestimate_ok = True
+        reestimate_failure_reason: str | None = None
         ph_grid = _coerce_complex(pm.get("ph_grid")).astype(np.complex64)
         if ph_grid.ndim != 3 or ph_grid.shape[0] < 2 or ph_grid.shape[1] < 2:
             reestimate_ok = False
+            reestimate_failure_reason = "pm1.ph_grid is missing or too small"
 
         try:
             grid_ij = _as_ps_dim(pm.get("grid_ij"), n_ps, 2, "pm1.grid_ij").astype(np.int64)
             if grid_ij.size == 0:
                 reestimate_ok = False
-        except Exception:
+                reestimate_failure_reason = "pm1.grid_ij is empty"
+        except Exception as exc:
             reestimate_ok = False
+            reestimate_failure_reason = f"pm1.grid_ij is invalid: {exc}"
             grid_ij = np.empty((0, 2), dtype=np.int64)
 
         bp1_file = patch_dir / "bp1.mat"
         if not bp1_file.exists():
             reestimate_ok = False
+            reestimate_failure_reason = "bp1.mat is missing"
 
         if reestimate_ok:
             try:
@@ -4568,6 +4718,7 @@ def stage3_select_ps(patch_dir: Path, backend: str = "auto") -> str:
                 ifg_index_ix = ifg_index_ix[(ifg_index_ix >= 0) & (ifg_index_ix < n_ifg_work)]
                 if ifg_index_ix.size == 0:
                     reestimate_ok = False
+                    reestimate_failure_reason = "no interferograms remain for gamma re-estimation"
                 else:
                     ph_patch2 = ph_patch[ix0, :].astype(np.complex128, copy=True)
                     ph_res2 = np.zeros((ix.size, n_ifg_work), dtype=np.float32)
@@ -4723,12 +4874,14 @@ def stage3_select_ps(patch_dir: Path, backend: str = "auto") -> str:
                 debug_payload["reestimate_exception"] = f"{type(exc).__name__}: {exc}"
 
         if not reestimate_ok:
-            ph_patch2 = ph_patch[ix0, :].astype(np.complex64, copy=True)
-            ph_res2 = ph_res[ix0, :].astype(np.float32, copy=True)
-            K_ps2 = K_ps[ix0].astype(np.float64, copy=True)
-            C_ps2 = C_ps[ix0].astype(np.float64, copy=True)
-            coh_ps2 = coh_ps[ix0].astype(np.float64, copy=True)
-            keep_ix = np.ones(ix.size, dtype=bool)
+            if debug_payload["reestimate_status"] != "failed":
+                debug_payload["reestimate_status"] = "failed"
+                debug_payload["reestimate_exception"] = reestimate_failure_reason
+            _write_stage3_debug(patch_dir, debug_payload)
+            reason = str(debug_payload["reestimate_exception"] or "unknown re-estimation failure")
+            raise PortedStageError(f"Stage 3 gamma re-estimation failed: {reason}")
+    elif ix.size > 0:
+        debug_payload["reestimate_status"] = "skipped"
     else:
         ph_patch2 = np.empty((0, ph_patch.shape[1]), dtype=np.complex64)
         ph_res2 = np.empty((0, ph_res.shape[1]), dtype=np.float32)
@@ -5433,19 +5586,23 @@ def stage5_merge_and_ifgstd(
     mat_cache: dict[Path, dict[str, Any]] | None = None,
     enable_mat_cache: bool = True,
 ) -> str:
+    parms = _load_parms(dataset_root)
+    if parms.merge_resample_size != 0.0:
+        raise PortedStageError(
+            "Stage 5 merge_resample_size is nonzero, but weighted patch resampling is not implemented"
+        )
+
     patch_dirs = _discover_patch_dirs(dataset_root)
     if not patch_dirs:
         raise PortedStageError("No patch directories found for merged stage-5 processing")
 
     cache = {} if mat_cache is None else mat_cache
     heading_deg = 0.0
-    parms_file = _resolve_file(dataset_root, "parms.mat")
-    if parms_file is not None:
-        try:
-            parms_raw = _read_mat_cached(parms_file, cache, enabled=enable_mat_cache)
-            heading_deg = _mat_scalar(parms_raw.get("heading", 0.0), 0.0)
-        except Exception:
-            heading_deg = 0.0
+    try:
+        parms_raw = _load_effective_parms_raw(dataset_root)
+        heading_deg = _mat_scalar(parms_raw.get("heading", 0.0), 0.0)
+    except Exception:
+        heading_deg = 0.0
 
     load_workers = _resolve_io_workers(io_workers, len(patch_dirs))
     if len(patch_dirs) > 1 and load_workers > 1:
@@ -5648,12 +5805,11 @@ def stage5_merge_and_ifgstd(
         _cache_mat_payload(dataset_root / "la2.mat", la2_payload, cache, enabled=enable_mat_cache)
     if rc2_all is not None:
         try:
-            rc2_payload = run_stage5_format_merged_rc2_kernel(rc2_all, backend=backend)
+            rc2_payload = _format_merged_rc2_mat_payload(rc2_all, backend=backend)
         except BackendUnavailableError as exc:
             raise PortedStageError(str(exc)) from exc
         write_mat(dataset_root / "rc2.mat", {"ph_rc": rc2_payload})
 
-    parms = _load_parms(dataset_root)
     n_ps = ph2.shape[0]
     if bp2_all is not None:
         bp = np.asarray(bp2_all, dtype=np.float32)
@@ -5710,6 +5866,7 @@ def stage6_unwrap(
     mat_cache: dict[Path, dict[str, Any]] | None = None,
     triangle_path: str | None = None,
     snaphu_path: str | None = None,
+    solver: str = "backend",
 ) -> str:
     stage6_t0 = time.perf_counter()
     stage6_debug_path = _stage6_debug_path(dataset_root)
@@ -5772,6 +5929,11 @@ def stage6_unwrap(
         small_baseline = _mat_text(parms_raw.get("small_baseline_flag", "n"), "n").lower() == "y"
         unwrap_patch_phase = _mat_text(parms_raw.get("unwrap_patch_phase", "n"), "n").lower() == "y"
         unwrap_method = _mat_text(parms_raw.get("unwrap_method", "3D"), "3D")
+        scla_deramp = _mat_text(parms_raw.get("scla_deramp", "n"), "n").lower() == "y"
+        if _mat_text(parms_raw.get("subtr_tropo", "n"), "n").lower() == "y":
+            raise PortedStageError("Stage 6 does not yet support subtr_tropo='y'")
+        if _mat_text(parms_raw.get("unwrap_hold_good_values", "n"), "n").lower() == "y":
+            raise PortedStageError("Stage 6 does not yet support unwrap_hold_good_values='y'")
         drop_ifg = _normalize_drop_index(parms_raw.get("drop_ifg_index", None))
         _unwrap_ifg_all, unwrap_ifg = _unwrap_ifg_sets(
             n_ifg,
@@ -5805,6 +5967,7 @@ def stage6_unwrap(
         build_phase_t0 = time.perf_counter()
 
         ph_w: np.ndarray
+        patch_phase_reference: np.ndarray | None = None
         phase_restore = np.zeros((n_ps, n_ifg), dtype=np.float32)
         pm2 = _read_mat_cached(dataset_root / "pm2.mat", cache, enabled=enable_mat_cache)
         if unwrap_patch_phase:
@@ -5822,6 +5985,9 @@ def stage6_unwrap(
                 )
             else:
                 ph_w = ph_patch
+            # Keep the full stack (including the inserted null master) so
+            # dropped interferograms can select the matching residual column.
+            patch_phase_reference = ph_w.copy()
         else:
             rc2_file = dataset_root / "rc2.mat"
             has_rc2 = False
@@ -5926,11 +6092,12 @@ def stage6_unwrap(
                 if C_ps_uw is not None:
                     ph_w = ph_w * np.exp(-1j * C_ps_uw[:, None])
                     phase_restore += C_ps_uw[:, None]
-                ph_ramp = scla.get("ph_ramp")
-                ph_ramp_arr = _optional_scla_matrix(ph_ramp, "scla_smooth2.ph_ramp")
-                if ph_ramp_arr is not None and ph_ramp_arr.shape == ph_w.shape:
-                    ph_w = ph_w * np.exp(-1j * ph_ramp_arr)
-                    phase_restore += ph_ramp_arr
+                if scla_deramp:
+                    ph_ramp = scla.get("ph_ramp")
+                    ph_ramp_arr = _optional_scla_matrix(ph_ramp, "scla_smooth2.ph_ramp")
+                    if ph_ramp_arr is not None and ph_ramp_arr.shape == ph_w.shape:
+                        ph_w = ph_w * np.exp(-1j * ph_ramp_arr)
+                        phase_restore += ph_ramp_arr
 
         nz = ph_w != 0
         ph_w[nz] = ph_w[nz] / np.abs(ph_w[nz])
@@ -5941,7 +6108,7 @@ def stage6_unwrap(
         if not (dataset_root / "uw_grid.mat").exists():
             _emit_stage6_debug("running", "build_uw_grid")
             grid_phase_t0 = time.perf_counter()
-            pix_size = float(_mat_scalar(parms_raw.get("unwrap_grid_size", 20.0), 20.0))
+            pix_size = float(_mat_scalar(parms_raw.get("unwrap_grid_size", 200.0), 200.0))
             prefilt_win = int(round(_mat_scalar(parms_raw.get("unwrap_gold_n_win", 32.0), 32.0)))
             if prefilt_win <= 0:
                 prefilt_win = 32
@@ -6111,19 +6278,16 @@ def stage6_unwrap(
         day_full = np.asarray(ps2.get("day"), dtype=np.float64).reshape(-1)
         if day_full.size != n_ifg:
             raise PortedStageError("ps2.day must match merged interferogram count")
-        unwrap_ifg_expected, _ifgday_ix = _build_single_master_ifg_geometry(n_ifg, master_ix, backend=backend)
-        if not np.array_equal(unwrap_ifg, unwrap_ifg_expected):
-            raise PortedStageError("active single-master unwrap path does not support dropped or reordered IFGs")
         day_rel = day_full - day_full[master_ix - 1]
         bperp_full = _as_ps_vector(ps2.get("bperp"), n_ifg, "ps2.bperp").astype(np.float64)
         bperp_use = bperp_full[unwrap_ifg_ix]
-        max_topo_err = float(_mat_scalar(parms_raw.get("max_topo_err", 15.0), 15.0))
+        max_topo_err = float(_mat_scalar(parms_raw.get("max_topo_err", 20.0), 20.0))
         lambda_m = float(_mat_scalar(parms_raw.get("lambda", 0.0555), 0.0555))
         mean_range = float(_mat_scalar(ps2.get("mean_range", 830000.0), 830000.0))
         mean_incidence = float(_mat_scalar(ps2.get("mean_incidence", np.deg2rad(23.0)), np.deg2rad(23.0)))
         max_K = max_topo_err / (lambda_m * mean_range * math.sin(mean_incidence) / (4.0 * math.pi))
         n_trial_wraps = float(np.max(bperp_full) - np.min(bperp_full)) * max_K / (2.0 * math.pi)
-        time_win = float(_mat_scalar(parms_raw.get("unwrap_time_win", 36.0), 36.0))
+        time_win = float(_mat_scalar(parms_raw.get("unwrap_time_win", 730.0), 730.0))
 
         edgs = np.asarray(uw_interp_payload.get("edgs"), dtype=np.float64)
         space_time_t0 = time.perf_counter()
@@ -6185,10 +6349,12 @@ def stage6_unwrap(
         colcost = colcost_base.copy()
         wrapped_space_uw = np.angle(np.exp(1j * dph_space_uw)).astype(np.float32, copy=False)
         backend_name = str(backend or "auto").strip().lower()
-        use_legacy_snaphu = backend_name in {"python", "threads", "thread", "io", "processes", "process", "cpu"}
-        snaphu_exe: str | None = None
+        use_legacy_snaphu, snaphu_exe = _select_stage6_unwrap_solver(
+            backend_name,
+            snaphu_path,
+            solver=solver,
+        )
         if use_legacy_snaphu:
-            snaphu_exe = _resolve_external_tool("snaphu", snaphu_path)
             snaphu_conf = dataset_root / "snaphu.conf"
             with snaphu_conf.open("w", encoding="utf-8") as fid:
                 fid.write("INFILE  snaphu.in\n")
@@ -6372,6 +6538,20 @@ def stage6_unwrap(
             )
         except BackendUnavailableError as exc:
             raise PortedStageError(str(exc)) from exc
+        if unwrap_patch_phase:
+            if patch_phase_reference is None:
+                raise PortedStageError("Stage 6 patch-phase reference is unavailable")
+            rc2_file = dataset_root / "rc2.mat"
+            if not rc2_file.exists():
+                raise PortedStageError("Stage 6 unwrap_patch_phase='y' requires rc2.mat")
+            ph_rc = _as_ps_ifg_complex(
+                _read_mat_cached(rc2_file, cache, enabled=enable_mat_cache).get("ph_rc"),
+                n_ps,
+                "rc2.ph_rc",
+            ).astype(np.complex64)
+            ph_uw_sel = ph_uw_sel + np.angle(
+                ph_rc[:, unwrap_ifg_ix] * np.conj(patch_phase_reference[:, unwrap_ifg_ix])
+            ).astype(np.float32)
         ph_uw = np.zeros((n_ps, n_ifg), dtype=np.float32)
         msd = np.zeros((n_ifg,), dtype=np.float32)
         ph_uw[:, unwrap_ifg_ix] = ph_uw_sel
@@ -6404,6 +6584,20 @@ def stage7_calc_scla(
     triangle_path: str | None = None,
 ) -> str:
     cache = {} if mat_cache is None else mat_cache
+    parms_raw: dict[str, Any] = {}
+    parms_file = _resolve_file(dataset_root, "parms.mat")
+    if parms_file is not None:
+        try:
+            parms_raw = _read_mat_cached(parms_file, cache, enabled=enable_mat_cache)
+        except Exception:
+            parms_raw = {}
+    small_baseline = _mat_text(parms_raw.get("small_baseline_flag", "n"), "n").lower() == "y"
+    if small_baseline:
+        raise PortedStageError(
+            "Stage 7 small-baseline processing requires the legacy three-pass workflow "
+            "(small-baseline SCLA, smoothing, then single-master SCLA), which is not implemented"
+        )
+
     if not (dataset_root / "phuw2.mat").exists():
         stage6_unwrap(
             dataset_root,
@@ -6426,16 +6620,6 @@ def stage7_calc_scla(
 
     master_ix = int(round(_mat_scalar(ps2.get("master_ix", 1), 1)))
     no_master = np.arange(n_ifg) != (master_ix - 1)
-
-    parms_raw: dict[str, Any] = {}
-    parms_file = _resolve_file(dataset_root, "parms.mat")
-    if parms_file is not None:
-        try:
-            parms_raw = _read_mat_cached(parms_file, cache, enabled=enable_mat_cache)
-        except Exception:
-            parms_raw = {}
-
-    small_baseline = _mat_text(parms_raw.get("small_baseline_flag", "n"), "n").lower() == "y"
 
     bp2_file = dataset_root / "bp2.mat"
     if bp2_file.exists():
@@ -6463,7 +6647,7 @@ def stage7_calc_scla(
         )
 
     ph_raw = ph_uw.astype(np.float64)
-    if _mat_text(parms_raw.get("scla_deramp", "y"), "y").lower() == "y":
+    if _mat_text(parms_raw.get("scla_deramp", "n"), "n").lower() == "y":
         xy = _as_ps_dim(ps2.get("xy"), n_ps, 3, "ps2.xy").astype(np.float64)
         try:
             ph_deramped, ph_ramp = run_stage7_deramp_unwrapped_phase_kernel(xy, ph_raw, backend=backend)
@@ -6563,46 +6747,25 @@ def stage8_filter_scn(
     snaphu_path: str | None = None,
 ) -> str:
     cache = {} if mat_cache is None else mat_cache
-    if not (dataset_root / "scla2.mat").exists() or not (dataset_root / "scla_smooth2.mat").exists():
-        stage7_calc_scla(
-            dataset_root,
-            backend=backend,
-            chunk_ps=chunk_ps,
-            enable_mat_cache=enable_mat_cache,
-            io_workers=io_workers,
-            mat_cache=cache,
-            triangle_path=triangle_path,
-        )
-
-    stage6_unwrap(
-        dataset_root,
-        backend=backend,
-        io_workers=io_workers,
-        enable_mat_cache=enable_mat_cache,
-        mat_cache=cache,
-        triangle_path=triangle_path,
-        snaphu_path=snaphu_path,
-    )
-
     ps2_file = dataset_root / "ps2.mat"
-    if not ps2_file.exists():
-        raise PortedStageError("Missing required artifact: ps2.mat (stage-5 merged output) before stage 8")
+    phuw2_file = dataset_root / "phuw2.mat"
+    missing = [path.name for path in (ps2_file, phuw2_file) if not path.exists()]
+    if missing:
+        raise PortedStageError(f"Missing required Stage 8 artifacts: {', '.join(missing)}")
+
     ps2 = _read_mat_cached(ps2_file, cache, enabled=enable_mat_cache)
     n_ps = int(round(_mat_scalar(ps2.get("n_ps", 0), 0)))
     if n_ps <= 0:
         raise PortedStageError("ps2.mat missing valid n_ps")
-
-    uw_grid = _read_mat_cached(dataset_root / "uw_grid.mat", cache, enabled=enable_mat_cache)
-    uw_interp = _read_mat_cached(dataset_root / "uw_interp.mat", cache, enabled=enable_mat_cache)
-    n_grid_ps = int(round(_mat_scalar(uw_grid.get("n_ps", 0), 0)))
-    if n_grid_ps <= 0:
-        raise PortedStageError("uw_grid.mat missing valid n_ps")
-
-    uw_ph = _as_ps_ifg_complex(uw_grid.get("ph"), n_grid_ps, "uw_grid.ph").astype(np.complex64)
-    n_grid_ps, _n_ifg_nm = uw_ph.shape
-    day_full = np.asarray(ps2.get("day"), dtype=np.float64).reshape(-1)
-    n_ifg = int(round(_mat_scalar(ps2.get("n_ifg", 0), 0)))
+    phuw2 = _read_mat_cached(phuw2_file, cache, enabled=enable_mat_cache)
+    ph_uw = _as_ps_matrix(phuw2.get("ph_uw"), n_ps, "phuw2.ph_uw").astype(np.float32)
+    n_ifg = ph_uw.shape[1]
+    day = _as_ps_vector(ps2.get("day"), n_ifg, "ps2.day").astype(np.float64)
+    xy = _as_ps_dim(ps2.get("xy"), n_ps, 3, "ps2.xy").astype(np.float64)[:, 1:3]
     master_ix = int(round(_mat_scalar(ps2.get("master_ix", 1), 1)))
+    if master_ix < 1 or master_ix > n_ifg:
+        raise PortedStageError("ps2.master_ix must be 1-based within phuw2.ph_uw")
+
     parms_raw: dict[str, Any] = {}
     parms_file = _resolve_file(dataset_root, "parms.mat")
     if parms_file is not None:
@@ -6610,60 +6773,64 @@ def stage8_filter_scn(
             parms_raw = _read_mat_cached(parms_file, cache, enabled=enable_mat_cache)
         except Exception:
             parms_raw = {}
-    small_baseline = _mat_text(parms_raw.get("small_baseline_flag", "n"), "n").lower() == "y"
-    unwrap_method = _mat_text(parms_raw.get("unwrap_method", "3D"), "3D")
-    la_flag = _mat_text(parms_raw.get("unwrap_la_error_flag", "y"), "y").lower() == "y"
-    scf_flag = _mat_text(parms_raw.get("unwrap_spatial_cost_func_flag", "n"), "n").lower() == "y"
-    effective_unwrap_method = "3D_FULL" if (not small_baseline and unwrap_method.upper() in {"3D", "3D_NEW"}) else unwrap_method
-    if small_baseline or effective_unwrap_method.upper() != "3D_FULL" or not la_flag or scf_flag:
+    if _mat_text(parms_raw.get("scn_kriging_flag", "n"), "n").lower() == "y":
         raise PortedStageError(
-            "Stage 8 legacy parity path currently supports only single-master unwrap_method=3D_FULL "
-            "with unwrap_la_error_flag='y' and unwrap_spatial_cost_func_flag='n'"
+            "Stage 8 scn_kriging_flag='y' is not implemented; refusing to substitute the Gaussian SCN filter"
         )
 
-    mean_v_payload = _stage8_mean_velocity_payload(
-        dataset_root,
-        ps2,
-        parms_raw,
-        cache,
-        backend=backend,
-        enable_mat_cache=enable_mat_cache,
-    )
-    write_mat(dataset_root / "mean_v.mat", mean_v_payload)
-    _cache_mat_payload(dataset_root / "mean_v.mat", mean_v_payload, cache, enabled=enable_mat_cache)
+    small_baseline = _mat_text(parms_raw.get("small_baseline_flag", "n"), "n").lower() == "y"
+    if small_baseline:
+        unwrap_indices = np.arange(n_ifg, dtype=np.int64)
+    else:
+        drop_ifg = _normalize_drop_index(parms_raw.get("drop_ifg_index", None))
+        drop_zero = drop_ifg[(drop_ifg >= 1) & (drop_ifg <= n_ifg)] - 1
+        unwrap_indices = np.setdiff1d(np.arange(n_ifg, dtype=np.int64), drop_zero)
 
-    unwrap_ifg, _ifgday_ix = _build_single_master_ifg_geometry(n_ifg, master_ix, backend=backend)
-    bperp_full = _as_ps_vector(ps2.get("bperp"), n_ifg, "ps2.bperp").astype(np.float64)
-    bperp_use = bperp_full[unwrap_ifg - 1]
-    max_topo_err = float(_mat_scalar(parms_raw.get("max_topo_err", 15.0), 15.0))
-    lambda_m = float(_mat_scalar(parms_raw.get("lambda", 0.0555), 0.0555))
-    mean_range = float(_mat_scalar(ps2.get("mean_range", 830000.0), 830000.0))
-    mean_incidence = float(_mat_scalar(ps2.get("mean_incidence", np.deg2rad(23.0)), np.deg2rad(23.0)))
-    max_K = max_topo_err / (lambda_m * mean_range * math.sin(mean_incidence) / (4.0 * math.pi))
-    n_trial_wraps = float(np.max(bperp_full) - np.min(bperp_full)) * max_K / (2.0 * math.pi)
-    time_win = float(_mat_scalar(parms_raw.get("unwrap_time_win", 36.0), 36.0))
-    edgs = np.asarray(uw_interp.get("edgs"), dtype=np.float64)
-    G, _dph_space, _dph_smooth_ifg, dph_noise, dph_space_uw = _compute_active_single_master_uw_space_time(
-        uw_ph,
-        edgs,
-        day=day_full - day_full[master_ix - 1],
-        master_ix=master_ix,
-        bperp=bperp_use,
-        unwrap_ifg=unwrap_ifg,
-        time_win=time_win,
-        n_trial_wraps=n_trial_wraps,
-        backend=backend,
-    )
-    payload = {
-        "G": G,
-        "dph_noise": dph_noise,
-        "dph_space_uw": dph_space_uw,
-        "spread": sparse.csc_matrix((edgs.shape[0], uw_ph.shape[1]), dtype=np.float64),
-        "ifreq_ij": _matlab_empty(np.float64),
-        "jfreq_ij": _matlab_empty(np.float64),
-        "shaky_ix": _matlab_empty(np.float64),
-        "predef_ix": _matlab_empty(np.float64),
-    }
-    write_mat(dataset_root / "uw_space_time.mat", payload)
-    _cache_mat_payload(dataset_root / "uw_space_time.mat", payload, cache, enabled=enable_mat_cache)
-    return f"Stage 8 produced mean velocity and space-time noise model for {edgs.shape[0]} arcs"
+    deramp_raw = parms_raw.get("scn_deramp_ifg", None)
+    if _mat_text(deramp_raw, "").lower() == "all":
+        deramp_indices = np.arange(n_ifg, dtype=np.int64)
+    else:
+        deramp_one = _normalize_drop_index(deramp_raw)
+        deramp_indices = deramp_one[(deramp_one >= 1) & (deramp_one <= n_ifg)] - 1
+
+    ph_scla: np.ndarray | None = None
+    c_ps_uw: np.ndarray | None = None
+    scla_ramp: np.ndarray | None = None
+    scla_file = dataset_root / "scla2.mat"
+    if scla_file.exists():
+        scla = _read_mat_cached(scla_file, cache, enabled=enable_mat_cache)
+        ph_scla = _as_ps_matrix(scla.get("ph_scla"), n_ps, "scla2.ph_scla").astype(np.float32)
+        if ph_scla.shape[1] != n_ifg:
+            raise PortedStageError("scla2.ph_scla must match phuw2.ph_uw")
+        c_ps_uw = _as_ps_vector(scla.get("C_ps_uw"), n_ps, "scla2.C_ps_uw").astype(np.float32)
+        ramp_raw = scla.get("ph_ramp")
+        if ramp_raw is not None and np.asarray(ramp_raw).size:
+            scla_ramp = _as_ps_matrix(ramp_raw, n_ps, "scla2.ph_ramp").astype(np.float64)
+            if scla_ramp.shape[1] != n_ifg:
+                raise PortedStageError("scla2.ph_ramp must match phuw2.ph_uw")
+
+    time_window = float(_mat_scalar(parms_raw.get("scn_time_win", 365.0), 365.0))
+    wavelength = float(_mat_scalar(parms_raw.get("scn_wavelength", 100.0), 100.0))
+    scn_chunk_points = min(max(1, int(chunk_ps or 4096)), 8192)
+    try:
+        payload = build_scn_payload(
+            ph_uw,
+            xy,
+            day,
+            master_index=master_ix - 1,
+            unwrap_indices=unwrap_indices,
+            time_window=time_window,
+            wavelength=wavelength,
+            ph_scla=ph_scla,
+            c_ps_uw=c_ps_uw,
+            scla_ramp=scla_ramp,
+            deramp_indices=deramp_indices,
+            chunk_points=scn_chunk_points,
+            workers=max(1, int(io_workers or 1)),
+        )
+    except ValueError as exc:
+        raise PortedStageError(f"Stage 8 SCN filtering failed: {exc}") from exc
+
+    write_mat(dataset_root / "scn2.mat", payload)
+    _cache_mat_payload(dataset_root / "scn2.mat", payload, cache, enabled=enable_mat_cache)
+    return f"Stage 8 estimated spatially correlated noise for {n_ps} PS"

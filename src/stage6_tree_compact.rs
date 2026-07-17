@@ -17,14 +17,13 @@ use self::stage6_compact_dsu::CompactDisjointSet;
 pub(crate) use self::stage6_tree_basis::CompactTreeBasis;
 use self::stage6_tree_basis::CompactTreeBasis as CompactTreeBasisImpl;
 use self::stage6_tree_large::optimize_large_tree_cycles;
+pub(crate) use self::stage6_tree_large::CompactTreeState;
 #[cfg(test)]
 pub(crate) use self::stage6_tree_remount::{
     relax_compact_tree_by_reduced_cost, relax_compact_tree_by_reduced_cost_candidates,
 };
 
 const SMALL_GRAPH_EXACT_CYCLE_NODES: usize = 4096;
-const TREE_ORDERS: [ArcOrder; 2] = [ArcOrder::Forward, ArcOrder::NegativeFirst];
-
 #[derive(Clone, Copy)]
 enum ArcOrder {
     Forward,
@@ -189,22 +188,31 @@ pub(crate) fn optimize_tree_cycles_compact_with_nflow_parallel(
     max_cycles: usize,
     parallel: bool,
 ) -> usize {
-    let node_count =
-        CompactResidualView::with_nflow(horizontal, vertical, nrow, ncol, nflow).node_count();
-    let mut applied = 0;
-    let orders = if nflow.abs().max(1) == 1 {
-        &TREE_ORDERS[..]
-    } else {
-        &TREE_ORDERS[..1]
+    let mut state = {
+        let view = CompactResidualView::with_nflow(horizontal, vertical, nrow, ncol, nflow);
+        CompactTreeState::new(&view)
     };
+    optimize_tree_cycles_compact_with_state(
+        horizontal, vertical, nrow, ncol, nflow, max_cycles, parallel, &mut state,
+    )
+}
+
+pub(crate) fn optimize_tree_cycles_compact_with_state(
+    horizontal: &mut [Option<EdgeDatum>],
+    vertical: &mut [Option<EdgeDatum>],
+    nrow: usize,
+    ncol: usize,
+    nflow: i32,
+    max_cycles: usize,
+    parallel: bool,
+    state: &mut CompactTreeState,
+) -> usize {
+    let node_count = state.node_count;
+    let mut applied = 0;
     let pivot_tree = node_count <= SMALL_GRAPH_EXACT_CYCLE_NODES;
     let mut connected = false;
 
-    for &order in orders {
-        let mut tree = {
-            let view = CompactResidualView::with_nflow(horizontal, vertical, nrow, ncol, nflow);
-            spanning_tree_arc_indices_compact_with_order(&view, order)
-        };
+    for tree in &mut state.trees {
         if tree.len() + 1 != node_count {
             continue;
         }
@@ -214,7 +222,7 @@ pub(crate) fn optimize_tree_cycles_compact_with_nflow_parallel(
                 let Some(basis) = ({
                     let view =
                         CompactResidualView::with_nflow(horizontal, vertical, nrow, ncol, nflow);
-                    CompactTreeBasisImpl::new(&view, &tree)
+                    CompactTreeBasisImpl::new(&view, tree)
                 }) else {
                     break;
                 };
@@ -227,7 +235,7 @@ pub(crate) fn optimize_tree_cycles_compact_with_nflow_parallel(
                 let Some(cycle) = cycle else {
                     break;
                 };
-                pivot_compact_tree_on_cycle_fast(&mut tree, &cycle);
+                pivot_compact_tree_on_cycle_fast(tree, &cycle);
                 apply_compact_residual_cycle_with_nflow(
                     horizontal, vertical, nrow, ncol, &cycle, nflow,
                 );

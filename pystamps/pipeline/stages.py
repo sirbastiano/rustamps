@@ -23,6 +23,7 @@ from pystamps.pipeline.ported import (
 )
 from pystamps.pipeline.types import PipelineContext, PipelineReport, StageResult
 from pystamps.runtime.executor import HybridExecutor
+from pystamps.runtime.resources import cpu_budget
 
 
 @dataclass(slots=True)
@@ -58,9 +59,9 @@ PATCH_STAGE_BUNDLES: dict[int, list[str]] = {
 
 MERGED_STAGE_BUNDLES: dict[int, list[str]] = {
     5: ["ps2.mat", "ph2.mat", "pm2.mat", "bp2.mat", "hgt2.mat", "la2.mat", "rc2.mat", "psver.mat", "ifgstd2.mat"],
-    6: ["ps2.mat", "ph2.mat", "pm2.mat", "bp2.mat", "ifgstd2.mat", "phuw2.mat", "uw_phaseuw.mat", "uw_grid.mat", "uw_interp.mat"],
+    6: ["ps2.mat", "ph2.mat", "pm2.mat", "bp2.mat", "ifgstd2.mat", "phuw2.mat", "uw_phaseuw.mat", "uw_grid.mat", "uw_interp.mat", "uw_space_time.mat"],
     7: ["scla2.mat", "scla_smooth2.mat"],
-    8: ["mean_v.mat", "uw_space_time.mat"],
+    8: ["scn2.mat"],
 }
 
 
@@ -101,7 +102,7 @@ def _task_kind_for_stage(stage: StageDef, context: PipelineContext, patch_count:
 
 
 def _default_cpu_workers() -> int:
-    return max(1, os.cpu_count() or 4)
+    return cpu_budget()
 
 
 def _configured_cpu_workers(context: PipelineContext) -> int:
@@ -243,7 +244,7 @@ def _run_patch_stage(stage: StageDef, patch_dir: Path, context: PipelineContext,
         return StageResult(stage.stage_id, "patch", patch_dir.name, "skipped", "No expected artifact mapping")
 
     artifact = patch_dir / expected
-    if artifact.exists():
+    if context.start_step == 0 and artifact.exists():
         return StageResult(stage.stage_id, "patch", patch_dir.name, "skipped_existing", f"{expected} present")
 
     if context.dry_run:
@@ -335,6 +336,7 @@ def _run_merged_stage(
                 enable_mat_cache=context.run_config.runtime.enable_mat_stage_cache,
                 triangle_path=context.run_config.tools.triangle,
                 snaphu_path=context.run_config.tools.snaphu,
+                solver=context.run_config.runtime.stage6_solver,
             )
         elif stage.stage_id == 7:
             details = stage7_calc_scla(
@@ -389,12 +391,14 @@ def run_pipeline(context: PipelineContext) -> PipelineReport:
     report = PipelineReport()
     patch_count = len(dataset.patches)
     merged_stage5 = StageDef(5, "Merge patches", "merged")
+    explicit_run = context.start_step > 0
 
     with HybridExecutor(
         io_workers=context.run_config.runtime.io_workers,
         cpu_workers=context.run_config.runtime.cpu_workers,
     ) as executor:
         for stage in _selected_stages(context.start_step, context.end_step):
+            failure_count_before = len(report.failures)
             task_kind = _task_kind_for_stage(stage, context, patch_count=patch_count)
             if stage.scope == "patch":
                 if _stage2_uses_full_cpu_default(stage, context):
@@ -429,9 +433,18 @@ def run_pipeline(context: PipelineContext) -> PipelineReport:
                                     details=str(exc),
                                 )
                             )
-                if stage.stage_id == 5 and context.end_step >= 5:
+                if (
+                    stage.stage_id == 5
+                    and context.end_step >= 5
+                    and len(report.failures) == failure_count_before
+                ):
                     try:
-                        result = _run_merged_stage_timed(merged_stage5, dataset.root, context)
+                        result = _run_merged_stage_timed(
+                            merged_stage5,
+                            dataset.root,
+                            context,
+                            force_run=explicit_run,
+                        )
                         report.add(result)
                     except Exception as exc:  # pragma: no cover
                         report.add(
@@ -452,10 +465,15 @@ def run_pipeline(context: PipelineContext) -> PipelineReport:
                             stage,
                             dataset.root,
                             context,
-                            force_run=False,
+                            force_run=explicit_run,
                         ).result()
                     else:
-                        result = _run_merged_stage_timed(stage, dataset.root, context)
+                        result = _run_merged_stage_timed(
+                            stage,
+                            dataset.root,
+                            context,
+                            force_run=explicit_run,
+                        )
                     report.add(result)
                 except Exception as exc:  # pragma: no cover
                     report.add(
@@ -467,4 +485,6 @@ def run_pipeline(context: PipelineContext) -> PipelineReport:
                             details=str(exc),
                         )
                     )
+            if len(report.failures) > failure_count_before:
+                break
     return report

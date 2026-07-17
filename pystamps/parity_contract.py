@@ -80,13 +80,13 @@ STAGE6_VERIFY_PATTERNS: tuple[str, ...] = (
     "uw_phaseuw.mat",
     "uw_grid.mat",
     "uw_interp.mat",
+    "uw_space_time.mat",
 )
 
 STAGE68_VERIFY_PATTERNS: tuple[str, ...] = STAGE6_VERIFY_PATTERNS + (
     "scla2.mat",
     "scla_smooth2.mat",
-    "mean_v.mat",
-    "uw_space_time.mat",
+    "scn2.mat",
 )
 STAGE7_VERIFY_PATTERNS: tuple[str, ...] = (
     "scla2.mat",
@@ -107,8 +107,7 @@ FULL_CLEAN_PATTERNS = STAGE1_VERIFY_PATTERNS + STAGE28_CLEAN_PATTERNS
 STAGE78_VERIFY_PATTERNS: tuple[str, ...] = (
     "scla2.mat",
     "scla_smooth2.mat",
-    "mean_v.mat",
-    "uw_space_time.mat",
+    "scn2.mat",
 )
 STAGE7_CLEAN_PATTERNS = STAGE7_VERIFY_PATTERNS
 STAGE78_CLEAN_PATTERNS = STAGE78_VERIFY_PATTERNS

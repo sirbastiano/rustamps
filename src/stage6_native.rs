@@ -40,8 +40,8 @@ use self::stage6_native_flow::edge_flow_objective;
 pub(crate) use self::stage6_native_flow::optimize_edge_flows_with_parallel;
 #[cfg(test)]
 pub(crate) use self::stage6_native_flow::{
-    optimize_edge_flows, snaphu_capped_batch_limit, snaphu_continue_capped_batches,
-    snaphu_flow_increments, snaphu_flow_tree_cycle_limit, snaphu_max_nflow_cycles,
+    next_flow_increment, optimize_edge_flows, snaphu_flow_increments, snaphu_flow_tree_cycle_limit,
+    snaphu_max_nflow_cycles,
 };
 pub(crate) use self::stage6_native_graph::reseed_labels_from_edge_deltas;
 use self::stage6_native_graph::{build_adjacency, seed_labels_from_adjacency};
@@ -52,7 +52,7 @@ pub use self::stage6_native_grid_api::{
 use self::stage6_native_labels::{refine_labels, refine_labels_by_line_shifts};
 pub use self::stage6_native_phase_api::{stage6_prepare_cost_offsets, stage6_reconstruct_ps_phase};
 
-fn unwrap_grid(
+pub(crate) fn unwrap_grid(
     ifgw: &[Complex32],
     nrow: usize,
     ncol: usize,
@@ -63,8 +63,12 @@ fn unwrap_grid(
 ) -> (Vec<f32>, usize, i64, usize, i64) {
     let node_count = nrow * ncol;
     let phases = decode_wrapped_phases(ifgw, nrow, ncol);
+    let active = ifgw
+        .iter()
+        .map(|value| value.re != 0.0 || value.im != 0.0)
+        .collect::<Vec<_>>();
     let (mut horizontal, mut vertical) =
-        decode_cost_edges(&phases, nrow, ncol, rowcost, colcost, nshortcycle);
+        decode_cost_edges(&phases, &active, nrow, ncol, rowcost, colcost, nshortcycle);
     let flow_cycles =
         optimize_edge_flows_with_parallel(&mut horizontal, &mut vertical, nrow, ncol, parallel);
     let flow_objective = edge_flow_objective(&horizontal, &vertical);
@@ -95,7 +99,6 @@ fn unwrap_grid(
         ncol,
         parallel,
     );
-    let post_label_flow_objective = edge_flow_objective(&post_horizontal, &post_vertical);
     reseed_labels_from_edge_deltas(&mut labels, &post_horizontal, &post_vertical, nrow, ncol);
     refine_labels_by_line_shifts(&mut labels, &post_horizontal, &post_vertical, nrow, ncol);
     refine_labels_by_binary_cuts(&mut labels, &post_horizontal, &post_vertical, nrow, ncol);
@@ -108,6 +111,14 @@ fn unwrap_grid(
         nrow,
         ncol,
     );
+    absorb_label_corrections(
+        &labels,
+        &mut post_horizontal,
+        &mut post_vertical,
+        nrow,
+        ncol,
+    );
+    let post_label_flow_objective = edge_flow_objective(&post_horizontal, &post_vertical);
 
     let unwrapped = phases
         .into_iter()

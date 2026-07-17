@@ -1,19 +1,60 @@
 [package]
-name = "pystamps_stage2_native"
-version = "0.1.0"
-edition = "2021"
+name = "pystamps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Standalone Rust implementation of the StaMPS persistent-scatterer workflow"
+homepage = "https://github.com/sirbastiano/pystamps"
+repository = "https://github.com/sirbastiano/pystamps"
 publish = false
+autolib = false
+autobins = false
 
-[lib]
-name = "_stage2_native"
-crate-type = ["cdylib"]
+[workspace]
+resolver = "2"
+members = [
+    ".",
+    "crates/pystamps-core",
+    "crates/pystamps-io",
+    "crates/pystamps-pipeline",
+    "crates/pystamps-verify",
+]
+default-members = ["."]
 
-[dependencies]
-num-complex = "0.4"
-numpy = "0.28"
-pyo3 = { version = "0.28", features = ["extension-module"] }
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.89"
+
+[workspace.dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+delaunator = "=1.1.0"
+faer = "=0.24.4"
+hdf5-pure = { version = "=0.21.1", features = ["parallel", "serde"] }
+matrw = "=0.1.4"
+num-complex = { version = "0.4", features = ["serde"] }
 rayon = "1.10"
 rustfft = "6.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+thiserror = "2"
+
+[[bin]]
+name = "pystamps"
+path = "crates/pystamps-cli/src/main.rs"
+
+[dependencies]
+clap.workspace = true
+pystamps-core = { path = "crates/pystamps-core" }
+pystamps-io = { path = "crates/pystamps-io" }
+pystamps-pipeline = { path = "crates/pystamps-pipeline" }
+pystamps-verify = { path = "crates/pystamps-verify" }
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [profile.release]
 codegen-units = 1

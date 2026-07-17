@@ -4,296 +4,235 @@
 
 # pySTAMPS
 
-Python-first STA(MPS)-style runtime for staged InSAR/PS processing, verification, and deterministic audit checks.
-
-Run staged pipelines, inspect dataset progress, and validate outputs against a reference dataset.
-
-<p align="center">
-  <a href="https://sirbastiano.github.io/pystamps/"><img src="https://img.shields.io/badge/-Documentation-0f172a?style=for-the-badge&logo=readme&logoColor=white&labelColor=0f172a" alt="Documentation" style="height: 34px;" /></a>
-  <a href="https://sirbastiano.github.io/pystamps/quickstart.html"><img src="https://img.shields.io/badge/-Quick%20Start-0f172a?style=for-the-badge&logo=firefoxbrowser&logoColor=white&labelColor=0f172a" alt="Quick Start" style="height: 34px;" /></a>
-  <a href="https://sirbastiano.github.io/pystamps/api/pystamps.html"><img src="https://img.shields.io/badge/-API%20Reference-0f172a?style=for-the-badge&logo=python&logoColor=white&labelColor=0f172a" alt="API Reference" style="height: 34px;" /></a>
-</p>
+Standalone Rust implementation of the StaMPS persistent-scatterer workflow.
 
 </div>
 
+The production runtime covers SNAP preparation, StaMPS-compatible Stages 1–8,
+MAT-file I/O, dataset status, and numerical verification. It does not invoke
+Python, MATLAB, SNAPHU, Triangle, or other external executables. The historical
+Python and PyO3 sources remain in the repository only as an audit oracle; Cargo
+does not compile or install them.
+
 ## Install
 
-Prerequisites: Python 3.12+ and `uv` on `PATH` for the default source workflow. Install `uv` first if needed: <https://docs.astral.sh/uv/getting-started/installation/>.
+### Conda package
 
-From source:
+The unpublished `pystamps` 0.2.0 Conda package contains the native Rust CLI only;
+it does not install Python, a system HDF5 library, SNAPHU, or another scientific
+executable. No Conda artifact has been uploaded yet. After the first validated
+development-channel release, install and smoke-test it in a clean environment:
 
 ```bash
-git clone git@github.com:sirbastiano/pystamps.git
+conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
+conda run -n pystamps pystamps --version
+conda run -n pystamps pystamps describe-backends
+```
+
+The compiled package targets `linux-64`, `linux-aarch64`, `osx-64`,
+`osx-arm64`, `win-64`, and `win-arm64`. Conda's Linux packages require glibc
+2.17 or newer, and the macOS packages require macOS 11 or newer. The
+source-install matrix remains the installation route for Linux musl. This is
+not a `noarch` package. Windows ARM64 remains experimental and on the `dev`
+label until its artifact passes native ARM64 CI. Promotion of the exact tested
+artifacts to the `main` label requires an explicit release decision.
+
+### Build from source
+
+Install Rust 1.89 or newer, then build and install directly from the repository:
+
+```bash
+git clone https://github.com/sirbastiano/pystamps.git
 cd pystamps
-uv sync
-uv run pystamps describe-backends
+cargo install --path . --locked
+pystamps --help
 ```
 
-Native Rust conda install:
+For a checkout-local release build:
 
 ```bash
-git clone git@github.com:sirbastiano/pystamps.git
-cd pystamps
-conda env create -f environment.yml
-conda activate pystamps-rust
-python -m pip install -e ".[dev]"
-make native-conda-kernel-check
-make native-conda-step-validate
+cargo build --release --locked
+cargo run --release --locked -- --help
 ```
 
-The conda environment also installs `huggingface_hub`, which is used by the dataset mirror target below.
-Run `make native-conda-env-check` after creating or updating the environment to verify both `huggingface_hub` and pySTAMPS backend discovery.
-Run `make native-conda-kernel-check` after editing Rust kernels; it format-checks Rust, runs Rust unit tests, rebuilds the PyO3 extension, and imports `stage6_unwrap_grid`.
-Run `make native-conda-step-validate` for the short, always-runnable gate. It checks Rust formatting/build/tests, rebuilds and imports the PyO3 extension, generates a 64-PS fixture, and executes and validates connected Stages 1-8 under `configs/native-kernels.yaml`, one process at a time. The report at `inputs_and_outputs/validation_runs/native_conda_step_validation_latest.json` includes elapsed time and peak RSS for every step in decimal GB and binary GiB.
-After a complete run, rerun one retained-fixture step with `make native-conda-step-validate NATIVE_STEPS=e2e-stage6`; list names with `conda run -n pystamps-rust python scripts/native_conda_step_validate.py --list`.
-If `conda` is not on the noninteractive shell `PATH`, pass it explicitly, for example:
+No Python environment or system HDF5 library is required. The Rust dependency
+graph contains the numerical, FFT, MAT v5/v7.3, and parallel-processing crates
+used by the binary.
+
+Source installation is gated on 64-bit little-endian Linux (GNU and musl),
+macOS, and Windows, on both x86_64 and ARM64. The native matrix in
+[portable-rust.yml](.github/workflows/portable-rust.yml) builds, tests, installs,
+and smoke-tests each target with the minimum supported Rust release. Other
+architectures, BSD, mobile, and WebAssembly are not currently supported.
+
+## Prepare SNAP input
+
+Run preparation on a writeable dataset directory containing the SNAP-exported
+rasters and metadata:
 
 ```bash
-make native-conda-check CONDA=/opt/miniconda3/bin/conda
-make native-conda-kernel-check CONDA=/opt/miniconda3/bin/conda
-make native-conda-step-validate CONDA=/opt/miniconda3/bin/conda
+pystamps prep snap \
+  --dataset /path/to/dataset \
+  --amp-dispersion 0.4 \
+  --range-patches 1 \
+  --azimuth-patches 1
 ```
 
-To update an existing environment after `environment.yml` changes:
+Use `--master-date YYYYMMDD` when the master cannot be inferred and `--force`
+to replace an existing prepared layout.
+
+## Run the pipeline
+
+Always work on a copy when comparing with a reference result:
 
 ```bash
-conda env update -f environment.yml --prune
+cp -a /path/to/source_dataset /path/to/run_dataset
+pystamps status --dataset /path/to/run_dataset
+pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8
 ```
 
-Editable installs use `python -m pip install -e .` or `python -m pip install -e "[dev]"`.
-`cargo` is required only for editable/source installs that build the Rust extension. Wheels from PyPI may avoid local compilation.
-Source builds need a Rust toolchain. Release builds publish platform wheels for the Rust extension where supported.
-After activating `pystamps-rust`, use `pystamps ...` directly. Outside that environment, keep using `uv run pystamps ...` from the checkout.
+The example uses POSIX `cp`; in PowerShell, use
+`Copy-Item -Recurse SOURCE_DATASET RUN_DATASET`.
 
-## Validation
-
-Fresh-clone validation commands:
+Run any contiguous stage range by changing `--start-step` and `--end-step`.
+Preview the planned writes with `--dry-run`:
 
 ```bash
-uv run pytest -q
-uv run --with build python -m build --sdist --wheel
-uv run --with twine python -m twine check dist/*
+pystamps run \
+  --dataset /path/to/run_dataset \
+  --start-step 3 \
+  --end-step 5 \
+  --dry-run
 ```
 
-Local entrypoints:
+The default configuration is native-only. An explicit YAML file can tune worker
+counts and scientific tolerances:
 
 ```bash
-make setup
-make test
-make build
-make twine-check
-make fetch-insar-dataset
-make import-insar-dataset
-make audit
-make native-conda-env-check
-make native-conda-check
-make native-conda-kernel-check
-make native-conda-step-validate
-make native-conda-audit-hf
-make native-conda-stage6-fixture
-make native-conda-audit
-make native-conda-verify
-make parity-loop
-make verify
-make benchmark
+pystamps --config configs/native-kernels.yaml run \
+  --dataset /path/to/run_dataset \
+  --start-step 1 \
+  --end-step 8
 ```
 
-Dataset-backed audit workflows use the documented optional repo assets, including:
+`--cpu-workers 0` uses the available Rayon threads. Restrict it when memory or
+shared-machine load matters. MAT reads are intentionally conservative and do
+not expose a separate I/O-worker pool.
 
-- `inputs_and_outputs/InSAR_dataset_test_stage8diag`
-- `inputs_and_outputs/InSAR_dataset_test`
-- `inputs_and_outputs/InSAR_dataset_small_baseline_stage7diag`
-- `inputs_and_outputs/InSAR_dataset_small_baseline_stage7`
+`runtime.stage6_ifg_workers` controls independent Stage 6 solves: `0` selects
+an adaptive, cell-budgeted schedule, while `1`, `2`, or `4` sets an upper
+bound. Scheduling does not alter scientific checkpoint fingerprints.
 
-The public Hugging Face source for the single-master test dataset is `https://huggingface.co/datasets/mdelgadoblasco/InSAR_dataset_test/tree/main` and can be mirrored with the official Hugging Face Python API:
+## Verify scientific output
+
+Compare a run tree with a retained golden tree:
 
 ```bash
-make fetch-insar-dataset
+pystamps verify \
+  --run /path/to/run_dataset \
+  --golden /path/to/golden_dataset
 ```
 
-That target downloads `mdelgadoblasco/InSAR_dataset_test` into `inputs_and_outputs/InSAR_dataset_test` via `huggingface_hub.snapshot_download`. Override `HF_DATASET_DEST` if you need a different local path.
-If you want to force the conda environment interpreter for the fetch, run `make fetch-insar-dataset HF_PYTHON="conda run -n pystamps-rust python"`.
-If the runtime has no network access, download the Hugging Face repository archive in a browser and import it with:
+Verification handles real and complex arrays, wrapped phase, NaN/Inf, sparse
+arrays, and character data. It reports every failed artifact and exits nonzero
+when tolerances are exceeded.
+
+The default compares every production artifact present in the golden tree. For
+a stage-scoped run, use `--through-stage 6` (or another stage in `1..8`) to
+exclude later-stage golden products without silently intersecting the trees.
+Add `--final-products-only` explicitly when comparing a coarser grid: strict
+verification still includes grid/cache intermediates by default.
+
+Explicit reruns invalidate later-stage products before processing. Stage 2 and
+Stage 6 caches are fingerprinted from their complete scientific inputs, so a
+same-size dataset or an unchanged baseline span cannot reuse stale results.
+
+The native Stage 6 solver is self-contained. It follows the same integer-flow
+scientific model without delegating to SNAPHU; small floating-point or solver
+path differences should be evaluated through the verifier rather than by file
+hash alone.
+
+High-quality Stage 6 flow optimization remains expensive on very large stacks.
+Its preprocessing and per-interferogram solve checkpoints are reusable,
+fingerprinted, checksummed, and atomically written. The final `phuw2.mat` is
+still published transactionally only after every interferogram finishes.
+Each run also writes a machine-readable phase and per-IFG timing report below
+`.pystamps-stage6/`.
+`configs/stage6-balanced.yaml` and `configs/stage6-fast.yaml` provide explicit
+coarser-grid profiles for users who prefer a large speed gain. Both retain a
+converged flow solve, and their results should be verified against the strict
+default before adoption for a dataset.
+
+The measured `stage6-experimental-15x.yaml` and
+`stage6-experimental-20x.yaml` profiles are more aggressive and carry
+Stage-6-only bounds. Use `--through-stage 6` when checking those bounds; later
+stages remain strict and must be assessed separately. Pass
+`--final-products-only` when the golden tree contains grid intermediates.
+
+The validated production path is the available single-master workflow
+(`small_baseline_flag='n'`). Small-baseline Stage 2–7 branches and nonstandard
+Stage 6 modes such as patch-phase, hold-good, tropo subtraction, disabled
+look-angle estimation, or custom spatial costs are rejected before output is
+written; the application never substitutes a scientifically different mode.
+The optional Goldstein prefilter uses the faster conservative CLAP spectrum,
+which deliberately preserves weak spectral bins and can produce small wrapped
+phase differences from the historical filter.
+
+## Development checks
 
 ```bash
-make import-insar-dataset HF_DATASET_ARCHIVE=/path/to/InSAR_dataset_test.zip
+cargo fmt --all -- --check
+cargo test --workspace
+cargo build --release
+cargo tree -p pystamps
 ```
 
-After mirroring that dataset, run the deep native Rust/conda audit for that Hugging Face dataset with:
+The production dependency audit should show no `pyo3`, `numpy`, Python runtime,
+SNAPHU, or Triangle dependency. The root package deliberately sets
+`autolib = false` so the legacy `src/lib.rs` PyO3 oracle cannot be discovered by
+Cargo accidentally.
 
-```bash
-make native-conda-audit-hf
+## Runtime commands
+
+```text
+pystamps prep snap         prepare native SNAP exports
+pystamps run               execute Stages 1–8
+pystamps status            inspect available artifacts
+pystamps verify            compare a run with a golden dataset
+pystamps describe-inputs   describe per-stage data scope
+pystamps describe-backends report the compiled runtime backend
+pystamps list-legacy       inventory an external StaMPS script tree
 ```
 
-Recorded native status:
+`list-legacy` is read-only inventory support for audits; it never executes the
+listed scripts.
 
-- Local runs of `conda env update -f environment.yml --prune`, `python -m pip install -e ".[dev]"`, `make native-conda-env-check CONDA=/opt/miniconda3/bin/conda`, `make native-conda-check CONDA=/opt/miniconda3/bin/conda`, and `make native-conda-kernel-check CONDA=/opt/miniconda3/bin/conda` pass in the `pystamps-rust` environment with Rust/Cargo 1.96.1.
-- On 2026-07-10, the connected short gate passed all 16 steps in `14.8-23.2s` measured step time across warm-cache and rebuild runs. Peak RSS was `0.118 GB` (`0.110 GiB`); the final manifest validated 19 artifacts for 64 PS, 7 IFGs, and a 97-arc Stage 8 model.
-- A prior completed Stage 8 native resume took `5222.5s`; its internal native Stage 6 unwrap reported `5116.1s` for 75 IFGs (`68.2s/IFG`) and `snaphu_external=0.0s`.
-- Reproduce saved Stage 6 fixture timing with `make native-conda-stage6-fixture CONDA=/opt/miniconda3/bin/conda STAGE6_FIXTURE_ROOT=inputs_and_outputs/validation_runs/stage6_fixture_minimal STAGE6_THREADS=<threads>`. Current saved 1773x4378 HF fixture estimates are `779.31s` with `STAGE6_THREADS=1` and `442.86s` with `STAGE6_THREADS=0`, so max Rayon is about `1.76x` faster for that candidate. The retained window1024 diagnostic is slower but closer to parity: `1289.85s` one-thread and `867.83s` max-thread, about `1.49x`.
-- Output verification is not yet full-chain parity-clean. The current documented blockers are the reduced strict Stage 2 residual on `PATCH_1` (`C_ps max=0.0005214810371398926`, shared by Python and native reruns, so not isolated to Rust dispatch) and the Stage 6 modeled objective delta (`66152`). The retained Stage 6 SNAPHU-core fixture passes the opt-in stable dense-MSD gate with strict wrap agreement, but the exact `diff != 0` dense MSD is not solver evidence because SNAPHU float32 output carries tiny nonzero differences on otherwise flat neighbor edges. Recent Stage 6 diagnostics show the remaining high-gain label islands are tiny favorable subregions inside much larger same-label plateaus; larger cut windows can cover them, but the retained side-256 run moved away from legacy dense-MSD parity despite lowering the modeled objective.
+## Repository layout
 
-Use `make native-conda-audit` and `make native-conda-verify` when the full `inputs_and_outputs` parity set, including `RUN_FULL_GATE_1e10`, is present.
+- `crates/pystamps-core`: numerical kernels and scientific stage models
+- `crates/pystamps-io`: pure-Rust MAT and SNAP dataset I/O
+- `crates/pystamps-pipeline`: transactional stage orchestration
+- `crates/pystamps-verify`: tolerant scientific comparison
+- `crates/pystamps-cli`: source for the installed `pystamps` binary
+- `pystamps/` and `src/`: retained legacy/reference implementations
 
-## Run by stage
-
-Set a local dataset path and always work on a writeable copy:
-
-```bash
-export DATASET_SOURCE=/path/to/original_dataset
-export DATASET_COPY=/path/to/dataset_copy
-cp -a "$DATASET_SOURCE" "$DATASET_COPY"
-```
-
-First, check status and verify what can execute:
-
-```bash
-uv run pystamps status --dataset "$DATASET_COPY"
-```
-
-Run a single stage or stage range:
-
-```bash
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 1 --end-step 1      # stage 1 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 2 --end-step 2      # stage 2 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 3 --end-step 3      # stage 3 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 4 --end-step 4      # stage 4 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 5 --end-step 5      # stage 5 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 6 --end-step 6      # stage 6 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 7 --end-step 7      # stage 7 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 8 --end-step 8      # stage 8 only
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 1 --end-step 8          # full pipeline
-```
-
-From the activated `pystamps-rust` conda environment, launch the same chain with native kernels using `pystamps --config configs/native-kernels.yaml run --dataset "$DATASET_COPY" --start-step 1 --end-step 8`. Change the two step values to run one stage at a time.
-
-Use `--dry-run` to preview actions without writing:
-
-```bash
-uv run pystamps run --dataset "$DATASET_COPY" --start-step 1 --end-step 8 --dry-run
-```
-
-## Verify a run
-
-```bash
-export RUN_COPY=/path/to/run_copy
-export GOLDEN_DATASET=/path/to/golden_dataset
-uv run pystamps verify --run "$RUN_COPY" --golden "$GOLDEN_DATASET"
-```
-
-## Stage-backend profile (optional)
-
-```bash
-uv run pystamps describe-backends
-```
-
-Use the checked-in `configs/native-kernels.yaml`, or copy the same profile into a local `native-kernels.yaml`:
-
-```bash
-cat > native-kernels.yaml <<'YAML'
-runtime:
-  backend: native
-  stage2_kernel_backend: native
-  stage2_native_threads: 0
-  kernel_backend_overrides:
-    stage2_clap_filter_kernel: native
-    stage2_grid_accumulate: native
-    stage2_grid_indices: native
-    stage2_histogram: native
-    stage2_normalize_complex: native
-    stage2_normalize_phase_matrix: native
-    stage2_ph_weight_block: native
-    stage2_topofit: native
-    stage2_topofit_coh_row_invariant: native
-    stage2_topofit_row_invariant: native
-    stage3_clap_filt_grid: native
-    stage3_clap_filt_grid_stack: native
-    stage3_clap_filt_patch: native
-    stage3_clap_filt_patch_stack: native
-    stage3_coh_threshold: native
-    stage3_select_ifg_index: native
-    stage3_wrap_filt: native
-    stage3_wrap_filt_global: native
-    stage4_adjacent_component_keep: native
-    stage4_duplicate_keep: native
-    stage4_edge_stats: native
-    stage4_phase_correction: native
-    stage4_weed_ifg_index: native
-    stage5_duplicate_keep: native
-    stage5_format_merged_rc2: native
-    stage5_ifg_std: native
-    stage5_patch_keep_mask: native
-    stage5_rc2_correction: native
-    stage6_estimate_la_error: native
-    stage6_extract_grid_values: native
-    stage6_grid_accumulate: native
-    stage6_prepare_cost_offsets: native
-    stage6_ps_grid_indices: native
-    stage6_reconstruct_ps_phase: native
-    stage6_select_ifgw: native
-    stage6_single_master_ifg_geometry: native
-    stage6_smooth_3d_full_single_master: native
-    stage6_unwrap_grid: native
-    stage6_unwrap_ifg_sets: native
-    stage7_center_to_reference: native
-    stage7_deramp_unwrapped_phase: native
-    stage7_mean_velocity_fit: native
-    stage7_scla: native
-    stage7_scla_smooth: native
-    stage8_edge_noise: native
-    stage8_weighted_lstsq: native
-    weighted_affine_fit: native
-    weighted_slope_fit: native
-  io_workers: 1
-  cpu_workers: 0
-  stage7_chunk_ps: 100000
-  stage8_chunk_edges: 200000
-YAML
-```
-
-This profile uses `runtime.backend: native` to select compiled Rust/CPU kernels and run them in-process.
-The checked-in validation profile uses `io_workers: 1` to avoid concurrent large MAT-file reads.
-
-```bash
-uv run pystamps --config configs/native-kernels.yaml run --dataset "$DATASET_COPY" --start-step 2 --end-step 8
-```
-
-When `pystamps-rust` is active, the same run is:
-
-```bash
-pystamps --config configs/native-kernels.yaml run --dataset "$DATASET_COPY" --start-step 2 --end-step 8
-```
-
-Use `python` backends for reference behavior in debugging, and `native` for the compiled Rust/CPU path.
-
-## Benchmarking and audit checkpoints
-
-```bash
-make benchmark
-make audit
-```
-
-`make audit` reads the manifest in `pystamps/data/audited_workflow_manifest.json`.
+`oracle/pyproject.toml` only locks dependencies for that source-only oracle and
+is marked `tool.uv.package = false`; there is no root Python project. There is
+no Python build backend, console entry point, wheel, or sdist. Explicit `make
+oracle-*` targets run the reference checks through `PYTHONPATH` without
+installing it.
 
 ## Notes
 
-- Do not point docs or examples at a fixed repository dataset path.
-- Always treat outputs in your run tree as authoritative; avoid running on your only source copy.
-- Optional repo assets are kept for parity and offline reproducibility, not required for runtime usage.
+- Treat the run directory as mutable and keep the source/golden dataset intact.
+- Prefer release builds for realistic Stage 2, Stage 4, and Stage 6 performance.
+- Use deterministic retained fixtures when changing solver or filtering logic.
+- Runtime output contracts follow StaMPS MAT conventions, including MATLAB-style
+  one-based identifiers and column-major array semantics at I/O boundaries.
 
-## Read the docs
-
-- [Pipeline and science guide](https://sirbastiano.github.io/pystamps/pipeline-science-guide.html)
-- [Quick Start](https://sirbastiano.github.io/pystamps/quickstart.html)
-- [Getting Started](https://sirbastiano.github.io/pystamps/getting-started.html)
-- [Usage](https://sirbastiano.github.io/pystamps/usage.html)
-- [Configuration](https://sirbastiano.github.io/pystamps/configuration.html)
-- [Architecture](https://sirbastiano.github.io/pystamps/architecture.html)
-- [Verification](https://sirbastiano.github.io/pystamps/verification.html)
-- [API Reference](https://sirbastiano.github.io/pystamps/api/pystamps.html)
-- [Release workflow](https://sirbastiano.github.io/pystamps/release.md)
-
-## Notebooks
-
-- `notebooks/start_here.ipynb`
-- `notebooks/00_pystamps_beginner_walkthrough.ipynb`
+The standalone contracts and supported modes are documented in
+[`docs/native_runtime.md`](docs/native_runtime.md); the reference audit and
+full-data measurements are recorded in
+[`docs/scientific_audit.md`](docs/scientific_audit.md). Retained Python API
+pages are explicitly bannered as historical-oracle references, not production
+install or runtime instructions.

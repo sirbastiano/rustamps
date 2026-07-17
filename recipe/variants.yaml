@@ -1,0 +1,30 @@
+c_compiler:
+  - if: linux
+    then: gcc
+  - if: osx
+    then: clang
+  - if: win
+    then: vs2022
+
+c_compiler_version:
+  - if: linux
+    then: "14"
+  - if: osx
+    then: "19"
+
+c_stdlib:
+  - if: linux
+    then: sysroot
+  - if: osx
+    then: macosx_deployment_target
+  - if: win
+    then: vs
+
+c_stdlib_version:
+  - if: linux
+    then: "2.17"
+  - if: osx
+    then: "11.0"
+
+rust_compiler:
+  - rust

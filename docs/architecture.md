@@ -1,27 +1,32 @@
 # Architecture Snapshot
 
-pySTAMPS is organized around one invariant: a StaMPS-style dataset directory is the source of truth. The CLI, runtime scheduler, ported stages, optimized kernels, and verification tools all read from or write to that directory.
+pySTAMPS has one production boundary: a standalone Rust binary reads and
+writes a StaMPS-style dataset directory. That directory, including its MATLAB
+artifacts and stage markers, is the source of truth.
 
-For the full teaching guide, read [pipeline_science_guide.md](pipeline_science_guide.md).
+For scientific details and current fail-closed compatibility boundaries, see
+[native_runtime.md](native_runtime.md).
 
-## Runtime layers
+## Crate boundaries
 
-| Layer | Main modules | Responsibility |
+| Layer | Rust crate or path | Responsibility |
 | --- | --- | --- |
-| CLI | `pystamps.cli` | Parse commands, load config, print JSON reports |
-| Configuration | `pystamps.config` | Normalize runtime, kernel, tolerance, tool, and compatibility settings |
-| Dataset I/O | `pystamps.io.dataset`, `pystamps.io.mat` | Discover patches and read/write MATLAB-compatible artifacts |
-| Pipeline orchestration | `pystamps.pipeline.stages` | Select stages, skip existing artifacts, schedule patch or merged work |
-| Scientific stages | `pystamps.pipeline.ported` | Implement StaMPS-style stage behavior in Python |
-| Kernels | `pystamps.kernels` | Dispatch hot numerical kernels to Python, native Rust/CPU, or CUDA providers |
-| Runtime execution | `pystamps.runtime` | Provide hybrid thread/process execution primitives |
-| Verification | `pystamps.verify`, `scripts/validate_audit.py` | Compare run outputs against golden datasets and audit manifests |
+| CLI | `crates/pystamps-cli` | Parse commands and print JSON reports |
+| Pipeline | `crates/pystamps-pipeline` | Load configuration, schedule stages, invalidate downstream products, and commit outputs |
+| Algorithms | `crates/pystamps-core` | Native numerical kernels for preparation and Stages 1–8 |
+| Dataset I/O | `crates/pystamps-io` | Discover layouts and read/write MATLAB-compatible artifacts |
+| Verification | `crates/pystamps-verify` | Compare production artifacts under strict or scientific tolerances |
+
+The root Cargo package assembles these crates into the `pystamps` binary. It
+has no Python extension boundary and does not spawn an external scientific
+tool. Pure-Rust MAT v5/v7.3 handling keeps system HDF5 outside the runtime
+dependency graph.
 
 ## Pipeline model
 
 Stages mirror the StaMPS stage range 1 through 8.
 
-| Stage | Scope | Pipeline name | Expected progress artifact |
+| Stage | Scope | Intent | Completion artifact |
 | --- | --- | --- | --- |
 | 1 | patch | Initial load | `PATCH_*/ps1.mat` |
 | 2 | patch | Estimate gamma | `PATCH_*/pm1.mat` |
@@ -30,183 +35,98 @@ Stages mirror the StaMPS stage range 1 through 8.
 | 5 | patch and merged | Correct phase and merge | `PATCH_*/ph2.mat`, root `ifgstd2.mat` |
 | 6 | merged | Unwrap phase | root `phuw2.mat` |
 | 7 | merged | Calculate SCLA | root `scla2.mat` |
-| 8 | merged | Filter SCN | root `uw_space_time.mat` |
+| 8 | merged | Filter SCN | root `scn2.mat` |
 
-Patch-scoped stages run once per discovered `PATCH_*` directory. Merged stages run once at the dataset root. Stage 5 has both patch promotion and merged aggregation behavior.
+Stages 1–5 execute for every discovered `PATCH_*` directory. Stage 5 then
+aggregates patch products at the dataset root. Stages 6–8 operate on merged
+artifacts.
 
-## Artifact-driven scheduling
+## Scheduling and publication
 
-Before running a stage, `pystamps.pipeline.stages` checks the expected artifact or stage bundle. If the artifacts already exist, the result status is `skipped_existing`. This makes the pipeline resumable and safe for inspection, but it also means benchmark or backend experiments must use a dataset copy that actually needs the target outputs.
+`pystamps-pipeline` discovers the dataset once and dispatches every selected
+stage to `NativeExecutor`. An explicit positive stage range recomputes the
+range. `start_step: 0` is resume mode and reports `skipped_existing` for a
+complete stage.
 
-The normal stage result statuses are:
+Before recomputation, downstream products are invalidated so an old success
+marker cannot survive changed upstream data. A stage transaction publishes
+its completion artifact only after all outputs are written successfully.
+
+The normal result statuses are:
 
 | Status | Meaning |
 | --- | --- |
-| `planned` | Dry-run selected the stage but did not execute it |
-| `completed` | Stage executed or strict reference replay copied the expected bundle |
-| `skipped_existing` | Expected artifacts were already present |
-| `skipped` | No artifact mapping exists for that scope |
-| `failed` | Stage raised an execution error |
+| `planned` | Dry-run selected the stage without writing |
+| `completed` | Native execution committed the complete output bundle |
+| `skipped_existing` | Resume mode found the completion artifact |
+| `failed` | Execution or publication failed |
 
-## Backend and kernel architecture
+## Native configuration
 
-pySTAMPS separates runtime scheduling from numerical kernel selection.
-
-Runtime backend values:
-
-- `auto`: choose a practical scheduling mode by stage
-- `threads`: use the I/O-oriented path
-- `processes`: use CPU process workers where appropriate
-- `gpu`: keep GPU-capable work in-process
-- `native`: prefer CPU-oriented scheduling
-
-Kernel backend values:
-
-- `python`: reference NumPy/Python implementation
-- `native`: compiled Rust/CPU implementation
-- `cuda`: CuPy/CUDA implementation where registered and available
-- `auto`: prefer optimized available providers with fallback rules
-
-Current optimized kernel names are:
-
-- `stage2_clap_filter_kernel`
-- `stage2_grid_accumulate`
-- `stage2_grid_indices`
-- `stage2_histogram`
-- `stage2_normalize_complex`
-- `stage2_normalize_phase_matrix`
-- `stage2_ph_weight_block`
-- `stage2_topofit`
-- `stage2_topofit_row_invariant`
-- `stage2_topofit_coh_row_invariant`
-- `stage3_clap_filt_grid`
-- `stage3_clap_filt_grid_stack`
-- `stage3_clap_filt_patch`
-- `stage3_wrap_filt`
-- `stage3_wrap_filt_global`
-- `stage3_coh_threshold`
-- `stage3_select_ifg_index`
-- `stage4_adjacent_component_keep`
-- `stage4_duplicate_keep`
-- `stage4_edge_stats`
-- `stage4_phase_correction`
-- `stage4_weed_ifg_index`
-- `stage5_duplicate_keep`
-- `stage5_format_merged_rc2`
-- `stage5_ifg_std`
-- `stage5_patch_keep_mask`
-- `stage5_rc2_correction`
-- `stage6_estimate_la_error`
-- `stage6_extract_grid_values`
-- `stage6_grid_accumulate`
-- `stage6_smooth_3d_full_single_master`
-- `stage6_single_master_ifg_geometry`
-- `stage6_unwrap_grid`
-- `stage6_unwrap_ifg_sets`
-- `stage7_deramp_unwrapped_phase`
-- `stage7_mean_velocity_fit`
-- `stage7_scla`
-- `stage7_scla_smooth`
-- `stage8_edge_noise`
-- `stage8_weighted_lstsq`
-
-Inspect local availability with:
-
-```bash
-uv run pystamps describe-backends
-```
-
-## Config flow
-
-`pystamps --config CONFIG.yaml ...` loads a YAML or JSON config into `RunConfig`.
-
-Common runtime fields:
+The production configuration accepts only native execution. `auto` remains a
+compatibility alias and normalizes to `native`; Python, CUDA, and external
+solver values fail during configuration loading.
 
 ```yaml
 runtime:
   backend: native
   stage2_kernel_backend: native
-  stage2_native_threads: 0
-  kernel_backend_overrides:
-    stage2_clap_filter_kernel: native
-    stage2_grid_accumulate: native
-    stage2_grid_indices: native
-    stage2_histogram: native
-    stage2_normalize_complex: native
-    stage2_normalize_phase_matrix: native
-    stage2_ph_weight_block: native
-    stage2_topofit: native
-    stage2_topofit_coh_row_invariant: native
-    stage2_topofit_row_invariant: native
-    stage3_clap_filt_grid: native
-    stage3_clap_filt_grid_stack: native
-    stage3_clap_filt_patch: native
-    stage3_coh_threshold: native
-    stage3_select_ifg_index: native
-    stage3_wrap_filt: native
-    stage3_wrap_filt_global: native
-    stage4_adjacent_component_keep: native
-    stage4_duplicate_keep: native
-    stage4_edge_stats: native
-    stage4_phase_correction: native
-    stage4_weed_ifg_index: native
-    stage5_duplicate_keep: native
-    stage5_format_merged_rc2: native
-    stage5_ifg_std: native
-    stage5_patch_keep_mask: native
-    stage5_rc2_correction: native
-    stage6_estimate_la_error: native
-    stage6_extract_grid_values: native
-    stage6_grid_accumulate: native
-    stage6_prepare_cost_offsets: native
-    stage6_ps_grid_indices: native
-    stage6_reconstruct_ps_phase: native
-    stage6_select_ifgw: native
-    stage6_smooth_3d_full_single_master: native
-    stage6_single_master_ifg_geometry: native
-    stage6_unwrap_grid: native
-    stage6_unwrap_ifg_sets: native
-    stage7_center_to_reference: native
-    stage7_deramp_unwrapped_phase: native
-    stage7_mean_velocity_fit: native
-    stage7_scla: native
-    stage7_scla_smooth: native
-    stage8_edge_noise: native
-    stage8_weighted_lstsq: native
-    weighted_affine_fit: native
-    weighted_slope_fit: native
-  io_workers: 1
+  stage6_solver: native
   cpu_workers: 0
-  stage7_chunk_ps: 100000
-  stage8_chunk_edges: 200000
+  stage6_grid_scale: 1.0
+  stage6_max_flow_passes: 0
 ```
 
-`backend: native` selects compiled Rust/CPU kernels and schedules them in-process.
-The native validation profile uses one patch worker to avoid concurrent large MAT-file reads.
+`cpu_workers: 0` uses the detected Rayon CPU budget. A positive value creates
+a bounded pool. Large MAT-file reads are intentionally conservative to limit
+peak memory.
 
-`cpu_workers: 0` means use the detected CPU budget. `stage2_native_threads: 0` lets native stage-2 execution use the configured CPU budget while avoiding patch-level oversubscription.
+`stage6_grid_scale: 1.0` preserves the configured unwrap grid. Values above
+one trade spatial resolution for fewer flow cells. A zero
+`stage6_max_flow_passes` solves to convergence. Both values are part of the
+Stage 6 scientific checkpoint fingerprint; shipped profiles leave the flow
+solve converged.
+
+Inspect the compiled runtime boundary with:
+
+```bash
+pystamps describe-backends
+```
+
+## Stage 6 checkpoint flow
+
+Stage 6 separates reusable intermediate state from the final artifact:
+
+1. Fingerprinted grid, interpolation, and space-time caches are loaded or
+   rebuilt from current scientific inputs.
+2. Each non-master solve interferogram is unwrapped natively and written as an
+   atomic checkpoint below `.pystamps-stage6/`.
+3. Invalid, corrupt, or mismatched checkpoints are recomputed.
+4. Only after every solve succeeds are the merged products committed and
+   `phuw2.mat` published.
+
+This supports interruption and bounded-memory parallel completion without
+allowing a partial Stage 6 result to look complete.
 
 ## Verification architecture
 
-Single-run verification compares one run tree to one golden tree:
+The verifier compares artifact presence, exact structural keys, dimensions,
+types, and values:
 
 ```bash
-uv run pystamps verify --run RUN_DIR --golden GOLDEN_DIR
+pystamps verify --run RUN_DIR --golden GOLDEN_DIR
+pystamps verify --run RUN_DIR --golden GOLDEN_DIR --profile scientific
 ```
 
-Full parity audit is handled by:
+Strict mode is the default. Scientific mode applies configured tolerances,
+bounded outlier fractions, hard maximum-error caps, and wrapping only to keys
+whose scientific contract is cyclic. Unwrapped phase is never wrapped merely
+to make a comparison pass. `--through-stage N` limits the artifact contract
+to a completed pipeline prefix.
 
-```bash
-make audit
-```
+## Development oracle boundary
 
-The audit dataset list is owned by `pystamps/data/audited_workflow_manifest.json`. Oracle precedence is owned by `pystamps/data/oracle_contract.json`. These files are the compatibility contract for broad parity claims.
-
-## Practical boundaries
-
-- The package implements stages 1 through 8 in `pystamps.pipeline.ported`.
-- The optimized native extension accelerates selected hot kernels, not every line of the pipeline.
-- Stage 3 still performs selection orchestration and CLAP stack preparation in Python, but grid-stack, grid, patch CLAP, local wrapped-phase, and global wrapped-phase filtering, IFG-index selection, threshold histograms, and re-estimation topofit solves route through native-capable kernel dispatchers when `backend` selects an accelerated provider.
-- External tools such as `triangle` and legacy/fallback `snaphu` are still required for execution paths that select them; the supported native Stage 6 path avoids `snaphu`.
-- Parity should be claimed from `verify` or audit evidence, not from command completion alone.
-- Speed should be claimed from `make benchmark` or `scripts/benchmark_backends.py`, not from a skipped pipeline run.
+The source Python tree and `oracle/pyproject.toml` exist only to reproduce the
+historical implementation during development. They are not a production
+package, backend, or fallback. Explicit `make oracle-*` targets own those
+workflows; the native binary never imports them.

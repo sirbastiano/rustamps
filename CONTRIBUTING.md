@@ -5,14 +5,14 @@
 ```bash
 git clone git@github.com:sirbastiano/pystamps.git
 cd pystamps
-uv sync
-python -m pip install -e ".[dev]"
+cargo build --release --locked
+cargo test --workspace --locked
 ```
 
 ## Code standards
 
-- Type hints and dataclasses are used across public modules.
-- Prefer explicit exceptions derived from module-specific classes.
+- Keep the production implementation and dependency graph native Rust.
+- Preserve StaMPS MAT contracts and reject unsupported scientific modes.
 - Keep behavior deterministic where feasible and document inferred behavior in implementation.
 
 ## PR workflow
@@ -20,7 +20,10 @@ python -m pip install -e ".[dev]"
 1. Implement a small, scoped change.
 2. Run local static checks and project tests.
 3. Include reproducible commands or examples in the PR description.
-4. Run parity-related checks when touching stage math.
+4. Run strict or scientific verifier checks when touching stage math.
+
+The retained Python tree and `oracle/pyproject.toml` are optional historical
+oracle tooling. They are not part of production setup or deployment.
 
 ## Branching model
 

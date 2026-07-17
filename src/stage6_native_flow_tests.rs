@@ -1,9 +1,11 @@
 use crate::stage6_native::{
-    defo_edge_cost, horizontal_index, optimize_edge_flows, optimize_edge_flows_with_parallel,
-    snaphu_capped_batch_limit, snaphu_continue_capped_batches, snaphu_flow_increments,
-    snaphu_flow_tree_cycle_limit, snaphu_max_nflow_cycles, EdgeDatum,
+    defo_edge_cost, horizontal_index, next_flow_increment, optimize_edge_flows,
+    optimize_edge_flows_with_parallel, snaphu_flow_increments, snaphu_flow_tree_cycle_limit,
+    snaphu_max_nflow_cycles, unwrap_grid, EdgeDatum,
 };
 use crate::stage6_residue::edge_residues;
+use num_complex::Complex32;
+use std::f32::consts::PI;
 
 fn edge(cost: i32, flow_sign: i32, flow: i32) -> EdgeDatum {
     EdgeDatum {
@@ -60,21 +62,21 @@ fn stage6_flow_increment_schedule_matches_snaphu_default() {
 #[test]
 fn stage6_flow_cycle_threshold_matches_snaphu_default_fraction() {
     assert_eq!(snaphu_max_nflow_cycles(3, 3), 1);
-    assert_eq!(snaphu_max_nflow_cycles(1773, 4378), 311);
+    assert_eq!(snaphu_max_nflow_cycles(1773, 4378), 78);
 }
 
 #[test]
 fn stage6_flow_tree_cycle_limit_allows_one_default_maxflow_sweep() {
     assert_eq!(snaphu_flow_tree_cycle_limit(3, 3), 28);
-    assert_eq!(snaphu_flow_tree_cycle_limit(1773, 4378), 1244);
+    assert_eq!(snaphu_flow_tree_cycle_limit(1773, 4378), 312);
 }
 
 #[test]
-fn stage6_capped_batch_continuation_is_bounded_to_medium_grids() {
-    assert!(snaphu_continue_capped_batches(2, 141));
-    assert!(!snaphu_continue_capped_batches(1773, 4378));
-    assert_eq!(snaphu_capped_batch_limit(2, 141), usize::MAX);
-    assert_eq!(snaphu_capped_batch_limit(1773, 4378), 3);
+fn stage6_flow_increment_tracks_a_growing_maximum_flow() {
+    assert_eq!(next_flow_increment(1, 2), 2);
+    assert_eq!(next_flow_increment(2, 3), 3);
+    assert_eq!(next_flow_increment(3, 3), 1);
+    assert_eq!(next_flow_increment(4, 9), 1);
 }
 
 #[test]
@@ -164,7 +166,7 @@ fn stage6_edge_flow_optimizer_continues_after_cycle_batch_limit() {
 }
 
 #[test]
-fn stage6_edge_flow_optimizer_allows_bounded_large_grid_continuation() {
+fn stage6_edge_flow_optimizer_has_no_large_grid_batch_cutoff() {
     let nrow = 2;
     let ncol = 9000;
     let mut horizontal = vec![Some(edge(1000, 1, 0)); nrow * (ncol - 1)];
@@ -183,6 +185,29 @@ fn stage6_edge_flow_optimizer_allows_bounded_large_grid_continuation() {
         edge_residues(&horizontal, &vertical, nrow, ncol),
         before_residue
     );
+}
+
+#[test]
+fn stage6_zero_magnitude_node_is_masked_from_unwrapping() {
+    let ifgw = [Complex32::new(1.0, 0.0), Complex32::new(0.0, 0.0)];
+    let colcost = [-950_i16, 1, 0, 1];
+
+    let (unwrapped, ..) = unwrap_grid(&ifgw, 1, 2, &[], &colcost, 200.0, false);
+
+    assert_eq!(unwrapped, [0.0, 0.0]);
+}
+
+#[test]
+fn stage6_final_objective_scores_the_emitted_labels() {
+    let ifgw = [Complex32::new(1.0, 0.0), Complex32::new(1.0, 0.0)];
+    let colcost = [-950_i16, 1, 0, 1];
+
+    let (unwrapped, _, _, _, final_objective) =
+        unwrap_grid(&ifgw, 1, 2, &[], &colcost, 200.0, false);
+    let label_delta = ((unwrapped[1] - unwrapped[0]) / (2.0 * PI)).round() as i32;
+    let expected = defo_edge_cost(1, -950, 0, 1, 200, label_delta);
+
+    assert_eq!(final_objective, expected);
 }
 
 #[test]

@@ -29,6 +29,14 @@ _KERNEL_BACKEND_ALIASES = {
     "cuda": "cuda",
 }
 
+_STAGE6_SOLVER_ALIASES = {
+    "auto": "auto",
+    "backend": "backend",
+    "native": "native",
+    "snaphu": "snaphu",
+    "external": "snaphu",
+}
+
 
 @dataclass(slots=True)
 class RuntimeConfig:
@@ -39,6 +47,7 @@ class RuntimeConfig:
     stage2_patch_backend_overrides: dict[str, str] = field(default_factory=dict)
     kernel_backend_overrides: dict[str, str] = field(default_factory=dict)
     stage2_native_threads: int = 0
+    stage6_solver: str = "auto"
     stage7_chunk_ps: int = 100_000
     stage8_chunk_edges: int = 200_000
     enable_mat_stage_cache: bool = True
@@ -54,7 +63,7 @@ class ToleranceConfig:
     atol: float = 1e-7
     wrap_equivalence: bool = True
     wrap_period: float = 2.0 * 3.141592653589793
-    wrap_keys: tuple[str, ...] = ("ph_uw", "ph", "dph_noise", "dph_space_uw")
+    wrap_keys: tuple[str, ...] = ("dph_noise",)
 
 
 @dataclass(slots=True)
@@ -124,6 +133,15 @@ def normalize_stage2_kernel_backend(name: str) -> str:
     return normalized
 
 
+def normalize_stage6_solver(name: str) -> str:
+    normalized = _STAGE6_SOLVER_ALIASES.get((name or "auto").strip().lower())
+    if normalized is None:
+        raise ConfigError(
+            f"Unsupported stage-6 solver '{name}'. Use: auto, native, snaphu, or backend"
+        )
+    return normalized
+
+
 def _load_raw(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"Config file does not exist: {path}")
@@ -162,6 +180,8 @@ def load_config(path: str | Path | None = None) -> RunConfig:
         runtime_norm["stage2_kernel_backend"] = normalize_stage2_kernel_backend(
             str(runtime_norm["stage2_kernel_backend"])
         )
+    if "stage6_solver" in runtime_norm:
+        runtime_norm["stage6_solver"] = normalize_stage6_solver(str(runtime_norm["stage6_solver"]))
     if "stage2_patch_backend_overrides" in runtime_norm:
         runtime_norm["stage2_patch_backend_overrides"] = _normalize_backend_override_map(
             runtime_norm.get("stage2_patch_backend_overrides"),

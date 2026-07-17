@@ -517,12 +517,12 @@ def test_build_run_copy_uses_run_full_gate_seed_for_dataset_test(monkeypatch, tm
         (seed / name).mkdir(parents=True)
     (seed / "patch.list").write_text("PATCH_1\n", encoding="utf-8")
     (seed / "patch.list_old").write_text("PATCH_1\nPATCH_2\nPATCH_3\nPATCH_4\n", encoding="utf-8")
-    for filename in ("select1.mat", "weed1.mat", "pm2.mat", "ps2.mat", "phuw2.mat", "scla2.mat", "mean_v.mat"):
+    for filename in ("select1.mat", "weed1.mat", "pm2.mat", "ps2.mat", "phuw2.mat", "scla2.mat", "scn2.mat"):
         (patch / filename).write_text("stub", encoding="utf-8")
     (seed / "pm2.mat").write_text("stub", encoding="utf-8")
     (seed / "phuw2.mat").write_text("stub", encoding="utf-8")
     (seed / "scla2.mat").write_text("stub", encoding="utf-8")
-    (seed / "mean_v.mat").write_text("stub", encoding="utf-8")
+    (seed / "scn2.mat").write_text("stub", encoding="utf-8")
 
     monkeypatch.setattr(module, "_inputs_root", lambda: inputs_root)
     monkeypatch.setattr(module, "_seed_root_for_dataset", lambda dataset_root: seed.resolve())
@@ -551,6 +551,7 @@ def test_build_run_copy_uses_run_full_gate_seed_for_dataset_test(monkeypatch, tm
     assert not (run_root / "PATCH_1" / "pm2.mat").exists()
     assert not (run_root / "pm2.mat").exists()
     assert not (run_root / "phuw2.mat").exists()
+    assert not (run_root / "scn2.mat").exists()
 
 
 def test_build_run_copy_prefers_stage5_when_run_full_gate_seed_has_stage1_artifacts(
@@ -560,6 +561,7 @@ def test_build_run_copy_prefers_stage5_when_run_full_gate_seed_has_stage1_artifa
     inputs_root = tmp_path / "inputs_and_outputs"
     dataset = inputs_root / "InSAR_dataset_test"
     dataset.mkdir(parents=True)
+    (dataset / "PATCH_1").mkdir()
     (dataset / "patch.list").write_text("PATCH_1\n", encoding="utf-8")
     seed = inputs_root / "RUN_FULL_GATE_1e10"
     patch = seed / "PATCH_1"

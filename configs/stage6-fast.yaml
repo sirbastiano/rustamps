@@ -1,0 +1,12 @@
+runtime:
+  stage6_grid_scale: 10.0
+  stage6_max_flow_passes: 0
+  stage6_ifg_workers: 0
+tolerance:
+  profile: scientific
+  key_tolerances:
+    msd:
+      atol: 1.0
+    ph_uw:
+      max_outlier_fraction: 0.005
+      max_abs: 12.5664

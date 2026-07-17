@@ -54,7 +54,7 @@ STAGE_PATTERNS = {
     ),
     6: STAGE6_VERIFY_PATTERNS,
     7: ("scla2.mat", "scla_smooth2.mat"),
-    8: ("mean_v.mat", "uw_space_time.mat"),
+    8: ("scn2.mat",),
 }
 
 LEGACY_CONTEXT = {
@@ -65,7 +65,7 @@ LEGACY_CONTEXT = {
     5: "Legacy context: `run_stamps_post.sh` moves into the merged dataset flow. pySTAMPS shows stage 5 explicitly before unwrapping.",
     6: "Legacy context: the post script continues with merged outputs; pySTAMPS lets you inspect the unwrap products independently.",
     7: "Legacy context: `run_stamps_post.sh` drives `stamps(5,7)`, so stage 7 owns the raw and smoothed SCLA artifacts.",
-    8: "Legacy context: the post wrapper follows `stamps(5,7)` with `stamps(6,6)` and plotting, so pySTAMPS uses stage 8 for the final rerun-backed `mean_v.mat` and `uw_space_time.mat` outputs.",
+    8: "Legacy context: StaMPS stage 8 runs `ps_scn_filt` and writes the spatially correlated noise estimate in `scn2.mat`.",
 }
 
 

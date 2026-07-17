@@ -1,13 +1,12 @@
-use super::stage6_native_boundary::route_residue_to_boundary;
-use super::stage6_native_curl::balance_local_curl;
 use super::{defo_edge_cost, EdgeDatum};
-use crate::stage6_flow::pair_neighbor_residues;
-use crate::stage6_tree_compact::optimize_tree_cycles_compact_with_nflow_parallel;
+use crate::stage6_mst::apply_mst_flows;
+use crate::stage6_mst_flow::mst_initial_flows;
+use crate::stage6_residual_view::CompactResidualView;
+use crate::stage6_residue::edge_residues;
+use crate::stage6_tree_compact::{optimize_tree_cycles_compact_with_state, CompactTreeState};
 
-const SNAPHU_DEFAULT_MAX_CYCLE_FRACTION: f64 = 0.00004;
+const SNAPHU_DEFAULT_MAX_CYCLE_FRACTION: f64 = 0.00001;
 const MIN_FLOW_TREE_CYCLE_LIMIT: usize = 28;
-const FLOW_BATCH_CONTINUE_NODE_LIMIT: usize = 8192;
-const LARGE_FLOW_BATCH_LIMIT: usize = 3;
 const SNAPHU_DEFAULT_MAX_FLOW: i32 = 4;
 
 #[cfg(test)]
@@ -20,13 +19,14 @@ pub(crate) fn optimize_edge_flows(
     optimize_edge_flows_with_parallel(horizontal, vertical, nrow, ncol, false)
 }
 
+#[cfg(test)]
 pub(crate) fn snaphu_flow_increments(most_flow: i32) -> Vec<i32> {
     let upper = most_flow.max(1).min(SNAPHU_DEFAULT_MAX_FLOW);
     (1..=upper).collect()
 }
 
 pub(crate) fn snaphu_max_nflow_cycles(nrow: usize, ncol: usize) -> usize {
-    ((nrow as f64 * ncol as f64 * SNAPHU_DEFAULT_MAX_CYCLE_FRACTION).ceil() as usize).max(1)
+    ((nrow as f64 * ncol as f64 * SNAPHU_DEFAULT_MAX_CYCLE_FRACTION).round() as usize).max(1)
 }
 
 pub(crate) fn snaphu_flow_tree_cycle_limit(nrow: usize, ncol: usize) -> usize {
@@ -34,15 +34,12 @@ pub(crate) fn snaphu_flow_tree_cycle_limit(nrow: usize, ncol: usize) -> usize {
         .max(MIN_FLOW_TREE_CYCLE_LIMIT)
 }
 
-pub(crate) fn snaphu_continue_capped_batches(nrow: usize, ncol: usize) -> bool {
-    nrow.saturating_sub(1) * ncol.saturating_sub(1) + 1 <= FLOW_BATCH_CONTINUE_NODE_LIMIT
-}
-
-pub(crate) fn snaphu_capped_batch_limit(nrow: usize, ncol: usize) -> usize {
-    if snaphu_continue_capped_batches(nrow, ncol) {
-        usize::MAX
+pub(crate) fn next_flow_increment(nflow: i32, most_flow: i32) -> i32 {
+    let next = nflow.max(1) + 1;
+    if next > SNAPHU_DEFAULT_MAX_FLOW || next > most_flow.max(1) {
+        1
     } else {
-        LARGE_FLOW_BATCH_LIMIT
+        next
     }
 }
 
@@ -55,6 +52,28 @@ fn max_abs_edge_flow(horizontal: &[Option<EdgeDatum>], vertical: &[Option<EdgeDa
         .unwrap_or(1)
 }
 
+fn optimize_flow_increment(
+    horizontal: &mut [Option<EdgeDatum>],
+    vertical: &mut [Option<EdgeDatum>],
+    nrow: usize,
+    ncol: usize,
+    nflow: i32,
+    max_cycles: usize,
+    parallel: bool,
+    state: &mut CompactTreeState,
+) -> usize {
+    let mut total = 0_usize;
+    loop {
+        let applied = optimize_tree_cycles_compact_with_state(
+            horizontal, vertical, nrow, ncol, nflow, max_cycles, parallel, state,
+        );
+        total = total.saturating_add(applied);
+        if applied == 0 {
+            return total;
+        }
+    }
+}
+
 pub(crate) fn optimize_edge_flows_with_parallel(
     horizontal: &mut [Option<EdgeDatum>],
     vertical: &mut [Option<EdgeDatum>],
@@ -62,28 +81,49 @@ pub(crate) fn optimize_edge_flows_with_parallel(
     ncol: usize,
     parallel: bool,
 ) -> usize {
-    pair_neighbor_residues(horizontal, vertical, nrow, ncol);
-    route_residue_to_boundary(horizontal, vertical, nrow, ncol);
-    balance_local_curl(horizontal, vertical, nrow, ncol);
+    let residue = edge_residues(horizontal, vertical, nrow, ncol);
+    let (rowflow, colflow) = mst_initial_flows(&residue, horizontal, vertical, nrow, ncol);
+    apply_mst_flows(horizontal, vertical, nrow, ncol, &rowflow, &colflow);
     let max_cycles = snaphu_flow_tree_cycle_limit(nrow, ncol);
-    let capped_batch_limit = snaphu_capped_batch_limit(nrow, ncol);
-    snaphu_flow_increments(max_abs_edge_flow(horizontal, vertical))
-        .into_iter()
-        .map(|nflow| {
-            let mut total = 0;
-            let mut batches = 0;
-            loop {
-                let applied = optimize_tree_cycles_compact_with_nflow_parallel(
-                    horizontal, vertical, nrow, ncol, nflow, max_cycles, parallel,
-                );
-                batches += 1;
-                total += applied;
-                if applied < max_cycles || batches >= capped_batch_limit {
-                    break total;
-                }
-            }
-        })
-        .sum()
+    let max_nflow_cycles = snaphu_max_nflow_cycles(nrow, ncol);
+    let mut state = {
+        let view = CompactResidualView::new(horizontal, vertical, nrow, ncol);
+        CompactTreeState::new(&view)
+    };
+    let mut total = 0_usize;
+    let mut nflow = 1_i32;
+    let mut nflow_done = 0_i32;
+    let mut minimum_objective = edge_flow_objective(horizontal, vertical);
+    let mut nondecreasing_iterations = 0_i32;
+
+    loop {
+        let applied = optimize_flow_increment(
+            horizontal, vertical, nrow, ncol, nflow, max_cycles, parallel, &mut state,
+        );
+        total = total.saturating_add(applied);
+        if applied <= max_nflow_cycles {
+            nflow_done += 1;
+        } else {
+            nflow_done = 1;
+        }
+
+        let most_flow = max_abs_edge_flow(horizontal, vertical).max(1);
+        let objective = edge_flow_objective(horizontal, vertical);
+        if objective > minimum_objective {
+            nondecreasing_iterations += 1;
+        } else {
+            minimum_objective = objective;
+            nondecreasing_iterations = 0;
+        }
+        if nondecreasing_iterations >= 2 * most_flow
+            || nflow_done >= SNAPHU_DEFAULT_MAX_FLOW
+            || nflow_done >= most_flow
+        {
+            break;
+        }
+        nflow = next_flow_increment(nflow, most_flow);
+    }
+    total
 }
 
 pub(super) fn edge_flow_objective(

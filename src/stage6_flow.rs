@@ -204,6 +204,7 @@ fn pair_global_residues(
     changed
 }
 
+#[allow(dead_code)]
 pub(crate) fn pair_neighbor_residues(
     horizontal: &mut [Option<EdgeDatum>],
     vertical: &mut [Option<EdgeDatum>],

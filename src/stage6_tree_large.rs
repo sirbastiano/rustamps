@@ -5,7 +5,27 @@ use super::stage6_tree_basis::CompactTreeBasis;
 use super::{pivot_compact_tree_on_cycle, pivot_compact_tree_on_cycle_fast};
 
 const REBASE_NODE_LIMIT: usize = 8192;
-const CANDIDATE_BATCH_LIMIT: usize = 8;
+const CANDIDATE_BATCH_LIMIT: usize = 32;
+
+pub(crate) struct CompactTreeState {
+    pub(super) node_count: usize,
+    pub(super) trees: [Vec<usize>; 2],
+}
+
+impl CompactTreeState {
+    pub(crate) fn new(view: &CompactResidualView<'_>) -> Self {
+        Self {
+            node_count: view.node_count(),
+            trees: [
+                super::spanning_tree_arc_indices_compact_with_order(view, super::ArcOrder::Forward),
+                super::spanning_tree_arc_indices_compact_with_order(
+                    view,
+                    super::ArcOrder::NegativeFirst,
+                ),
+            ],
+        }
+    }
+}
 
 pub(super) fn optimize_large_tree_cycles(
     horizontal: &mut [Option<EdgeDatum>],
@@ -16,7 +36,7 @@ pub(super) fn optimize_large_tree_cycles(
     max_cycles: usize,
     parallel: bool,
     node_count: usize,
-    mut tree: Vec<usize>,
+    tree: &mut Vec<usize>,
 ) -> usize {
     let rebase_tree = node_count <= REBASE_NODE_LIMIT;
     let candidate_limit = if rebase_tree {
@@ -74,10 +94,10 @@ pub(super) fn optimize_large_tree_cycles(
         };
         if rebase_tree {
             let view = CompactResidualView::with_nflow(horizontal, vertical, nrow, ncol, nflow);
-            if !pivot_compact_tree_on_cycle(&view, &mut tree, &cycle) {
+            if !pivot_compact_tree_on_cycle(&view, tree, &cycle) {
                 break;
             }
-        } else if !pivot_compact_tree_on_cycle_fast(&mut tree, &cycle) {
+        } else if !pivot_compact_tree_on_cycle_fast(tree, &cycle) {
             break;
         }
     }

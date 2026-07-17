@@ -185,9 +185,9 @@ STAGE_INPUT_CONTRACTS: dict[int, dict[str, Any]] = {
         "inputs": [
             {
                 "logical_input": "stage-7 correction products",
-                "array_name": "scla2 / mean_v / ps2 / phuw2",
+                "array_name": "scla2 / ps2 / phuw2",
                 "shape_hint": "mixed arrays",
-                "meaning": "merged correction terms and unwrapped phase used for the final filtered products",
+                "meaning": "merged correction terms, geometry, and unwrapped phase used to estimate spatially correlated noise",
                 "common_sources": "Stage-7 outputs or equivalent in-memory structures",
             }
         ],

@@ -3,171 +3,76 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Installation - pySTAMPS Docs</title>
+  <title>Native installation - pySTAMPS</title>
   <link rel="stylesheet" href="assets/styles.css" />
-  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS Docs</h1></div>
-    <small>Installation Guide</small>
-    <nav>
-      <div class="nav-group"><h2>Guide</h2><ul class="nav-list"><li><a href="index.html">Introduction</a></li><li><a href="pipeline-science-guide.html">Pipeline Guide</a></li><li><a href="getting-started.html">Getting Started</a></li><li><a class="active" href="installation.html">Installation</a></li><li><a href="quickstart.html">Quick Start</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="configuration.html">Configuration</a></li><li><a href="usage.html">Usage</a></li><li><a href="testing.html">Testing</a></li><li><a href="verification.html">Verification</a></li><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
-      <div class="nav-group"><h2>API</h2><ul class="nav-list"><li><a href="api/pystamps.html">Package</a></li><li><a href="api/configuration.html">config</a></li><li><a href="api/cli.html">cli</a></li><li><a href="api/status.html">status</a></li><li><a href="api/verify.html">verify</a></li><li><a href="api/parity_contract.html">parity_contract</a></li><li><a href="api/io_dataset.html">io.dataset</a></li><li><a href="api/io_mat.html">io.mat</a></li><li><a href="api/runtime.html">runtime</a></li><li><a href="api/kernels.html">kernels</a></li><li><a href="api/pipeline_types.html">pipeline.types</a></li><li><a href="api/pipeline_stages.html">pipeline.stages</a></li><li><a href="api/pipeline_ported.html">pipeline.ported</a></li><li><a href="api/compat_legacy.html">compat.legacy</a></li></ul></div>
-    </nav>
+    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <small>Standalone Rust runtime</small>
+    <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
+      <li><a href="index.html">Introduction</a></li>
+      <li><a href="installation.html">Installation</a></li>
+      <li><a href="quickstart.html">Quick start</a></li>
+      <li><a href="configuration.html">Configuration</a></li>
+      <li><a href="usage.html">Usage</a></li>
+      <li><a href="pipeline-science-guide.html">Science guide</a></li>
+    </ul></div></nav>
   </aside>
   <main class="content">
     <div class="breadcrumb">Home / Installation</div>
-    <h1>Installation</h1>
+    <h1>Install the native Rust binary</h1>
+    <p>The production package is the root Cargo package. Rust 1.89 or newer is the only language toolchain required.</p>
 
     <section class="card">
-      <h2>Prerequisites</h2>
-      <ul>
-        <li>Python 3.12+</li>
-        <li><span class="code-inline">uv</span> on PATH for the default source workflow; install it from <a href="https://docs.astral.sh/uv/getting-started/installation/">Astral's uv installation guide</a></li>
-        <li>Conda or Mamba for the checked <span class="code-inline">environment.yml</span> workflow</li>
-        <li>Rust toolchain required for source and editable installs of the native Rust/CPU extension</li>
-        <li>Optional: <span class="code-inline">triangle</span> binary on PATH (triangulation workflows)</li>
-        <li>Optional: <span class="code-inline">snaphu</span> binary on PATH (legacy unwrap flow)</li>
-      </ul>
-      <div class="callout warning">No Dockerfile is included. For containerized deployments, install package-level requirements and mount datasets as bind mounts.</div>
+      <h2>Conda package</h2>
+      <p>The unpublished <span class="code-inline">pystamps</span> 0.2.0 Conda package contains only the native Rust CLI. It does not install Python, a system HDF5 library, SNAPHU, or another external scientific executable. No package has been uploaded yet.</p>
+      <p>After the first validated development-channel release, install and smoke-test it in a clean environment:</p>
+      <pre><code class="language-bash">conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
+conda run -n pystamps pystamps --version
+conda run -n pystamps pystamps describe-backends</code></pre>
+      <p>Compiled packages target <span class="code-inline">linux-64</span>, <span class="code-inline">linux-aarch64</span>, <span class="code-inline">osx-64</span>, <span class="code-inline">osx-arm64</span>, <span class="code-inline">win-64</span>, and <span class="code-inline">win-arm64</span>. Linux packages require glibc 2.17 or newer, macOS packages require macOS 11 or newer, and the CLI is neither a musl nor <span class="code-inline">noarch</span> package.</p>
+      <p>Windows ARM64 remains experimental on the <span class="code-inline">dev</span> label until native ARM64 CI passes. Promotion of the exact tested artifacts to <span class="code-inline">main</span> requires an explicit release decision.</p>
     </section>
 
     <section class="card">
-      <h2>Install from source / local checkout</h2>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">git clone git@github.com:sirbastiano/pystamps.git
+      <h2>Build from a checkout</h2>
+      <pre><code class="language-bash">git clone https://github.com/sirbastiano/pystamps.git
 cd pystamps
-uv sync
-uv run pystamps describe-backends</code></pre>
-      <p><span class="code-inline">describe-backends</span> confirms which <span class="code-inline">python</span>, <span class="code-inline">native</span>, and optional <span class="code-inline">cuda</span> kernel providers are available.</p>
-      <p>Developer profile:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">python -m pip install -e .
-python -m pip install -e ".[dev]"</code></pre>
-      <p>Editable installs compile the Rust-backed native module locally, so <span class="code-inline">cargo --version</span> must work before installation.</p>
-      <p>Conda environment with Rust/Cargo:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">conda env create -f environment.yml
-conda activate pystamps-rust
-python -m pip install -e ".[dev]"
-cargo check
-python setup.py build_ext --inplace
+cargo build --release --locked
+cargo install --path . --locked
+pystamps --help
 pystamps describe-backends</code></pre>
-      <p>The conda environment also installs <span class="code-inline">huggingface_hub</span> for Hugging Face dataset mirroring. Run <span class="code-inline">make native-conda-env-check</span> after creating or updating it.</p>
-      <p>After Rust kernel edits, rerun <span class="code-inline">python setup.py build_ext --inplace</span> inside <span class="code-inline">pystamps-rust</span> before testing Python entrypoints.</p>
-      <p>If <span class="code-inline">conda</span> is not on the noninteractive shell <span class="code-inline">PATH</span>, pass it explicitly:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">make native-conda-check CONDA=/opt/miniconda3/bin/conda</code></pre>
-      <p>Update that environment later with:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">conda env update -f environment.yml --prune</code></pre>
-      <p>Inside the activated <span class="code-inline">pystamps-rust</span> environment, run <span class="code-inline">pystamps</span> directly; outside it, use <span class="code-inline">uv run pystamps</span> from the checkout.</p>
+      <p><span class="code-inline">describe-backends</span> should report the native provider and an empty runtime-external-dependency list.</p>
     </section>
 
     <section class="card">
-      <h2>Install from PyPI</h2>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">pip install pystamps</code></pre>
-      <p>Supported platforms use prebuilt wheels for the Rust extension and do not need a local compiler toolchain.</p>
-      <p>Optional GPU backend:</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">pip install "pystamps[gpu]"</code></pre>
+      <h2>Supported systems</h2>
+      <p>Native source installation is gated on 64-bit little-endian Linux (GNU and musl), macOS, and Windows, for both x86_64 and ARM64. CI builds, tests, installs, and launches every supported target with Rust 1.89.</p>
+      <p>32-bit, big-endian, BSD, mobile, WebAssembly, and unusual network-filesystem transaction semantics are not currently supported.</p>
     </section>
 
     <section class="card">
-      <h2>Configuration</h2>
-      <ul>
-        <li>Configuration path is passed via CLI flag <span class="code-inline">--config</span>.</li>
-        <li>Accepted formats: YAML or JSON.</li>
-        <li>When omitted, defaults from <span class="code-inline">pystamps.config.RunConfig()</span> are used.</li>
-      </ul>
-      <pre><button class="copy-btn">Copy</button><code class="language-yaml">runtime:
-  backend: native
-  stage2_kernel_backend: native
-  stage2_native_threads: 0
-  kernel_backend_overrides:
-    stage2_clap_filter_kernel: native
-    stage2_grid_accumulate: native
-    stage2_grid_indices: native
-    stage2_histogram: native
-    stage2_normalize_complex: native
-    stage2_normalize_phase_matrix: native
-    stage2_ph_weight_block: native
-    stage2_topofit: native
-    stage2_topofit_coh_row_invariant: native
-    stage2_topofit_row_invariant: native
-    stage3_clap_filt_grid: native
-    stage3_clap_filt_grid_stack: native
-    stage3_clap_filt_patch: native
-    stage3_clap_filt_patch_stack: native
-    stage3_coh_threshold: native
-    stage3_select_ifg_index: native
-    stage3_wrap_filt: native
-    stage3_wrap_filt_global: native
-    stage4_adjacent_component_keep: native
-    stage4_duplicate_keep: native
-    stage4_edge_stats: native
-    stage4_phase_correction: native
-    stage4_weed_ifg_index: native
-    stage5_duplicate_keep: native
-    stage5_format_merged_rc2: native
-    stage5_ifg_std: native
-    stage5_patch_keep_mask: native
-    stage5_rc2_correction: native
-    stage6_estimate_la_error: native
-    stage6_extract_grid_values: native
-    stage6_grid_accumulate: native
-    stage6_prepare_cost_offsets: native
-    stage6_ps_grid_indices: native
-    stage6_reconstruct_ps_phase: native
-    stage6_select_ifgw: native
-    stage6_single_master_ifg_geometry: native
-    stage6_smooth_3d_full_single_master: native
-    stage6_unwrap_grid: native
-    stage6_unwrap_ifg_sets: native
-    stage7_center_to_reference: native
-    stage7_deramp_unwrapped_phase: native
-    stage7_mean_velocity_fit: native
-    stage7_scla: native
-    stage7_scla_smooth: native
-    stage8_edge_noise: native
-    stage8_weighted_lstsq: native
-    weighted_affine_fit: native
-    weighted_slope_fit: native
-  io_workers: 1
-  cpu_workers: 0
-  enable_mat_stage_cache: true
-  stage2_checkpoint_mode: final
-  stage2_checkpoint_interval: 1
-  stage7_chunk_ps: 100000
-  stage8_chunk_edges: 200000
-compat:
-  strict_reference: false
-  reference_root: null
-tolerance:
-  rtol: 1e-5
-  atol: 1e-7
-  wrap_equivalence: true
-  wrap_period: 6.283185307179586</code></pre>
+      <h2>Production dependency boundary</h2>
+      <p>The installed command does not import Python or execute MATLAB, SNAPHU, Triangle, or another scientific program. It also does not require a system HDF5 library.</p>
+      <p>Build with <span class="code-inline">--locked</span> so the checked dependency graph is used. The root <span class="code-inline">Cargo.lock</span> is the release dependency contract.</p>
     </section>
 
     <section class="card">
-      <h2>Environment and directories</h2>
-      <ul>
-        <li>Repository has source assets under <span class="code-inline">/tmp</span>, <span class="code-inline">inputs_and_outputs</span>, and <span class="code-inline">StaMPS</span>.</li>
-        <li>Large validation artifacts are repository-local and not required for runtime package installation.</li>
-      </ul>
+      <h2>Confirm the build</h2>
+      <pre><code class="language-bash">cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo build --release --locked
+cargo tree -p pystamps</code></pre>
+      <p>See <a href="release.md">the native release process</a> for the complete gate.</p>
     </section>
 
     <section class="card">
-      <h2>Troubleshooting</h2>
-      <details class="api-section" open>
-        <summary>ImportError: No module named ...</summary>
-        <div class="api-body"><p>Install editable mode from repo root and ensure terminal uses the same interpreter as current shell.</p></div>
-      </details>
-      <details class="api-section">
-        <summary>ConfigError: Config must be YAML or JSON</summary>
-        <div class="api-body"><p>Provide <span class="code-inline">.yml</span>, <span class="code-inline">.yaml</span>, or <span class="code-inline">.json</span> file path.</p></div>
-      </details>
-      <details class="api-section">
-        <summary>No reference to triangle/snaphu</summary>
-        <div class="api-body"><p>Binary lookups are environment-driven outside package import path; install and export PATH only when running legacy-dependent workflows.</p></div>
-      </details>
+      <h2>Developer oracle</h2>
+      <p>The historical implementation is isolated under <span class="code-inline">oracle/</span> for reference reproduction. Its development environment is not installed with, loaded by, or used as a fallback by the production binary.</p>
+      <pre><code class="language-bash">make oracle-setup
+make oracle-test</code></pre>
     </section>
   </main>
 </div>

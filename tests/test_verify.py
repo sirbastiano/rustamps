@@ -1,4 +1,10 @@
-from pystamps.verify import FileComparison, VerificationReport, classify_failures, summarize_failures
+from pathlib import Path
+
+import numpy as np
+
+from pystamps.config import ToleranceConfig
+from pystamps.io.mat import write_mat
+from pystamps.verify import FileComparison, VerificationReport, _compare_mat, classify_failures, summarize_failures
 
 
 def test_classify_failures_groups_downstream_residuals() -> None:
@@ -85,3 +91,37 @@ def test_summarize_failures_prioritizes_earliest_stage_boundary() -> None:
         ),
     }
     assert summary["trace"]["stage2_residual_present"] is True
+
+
+def _compare_payloads(tmp_path: Path, run_payload: dict[str, np.ndarray], golden_payload: dict[str, np.ndarray]) -> bool:
+    run_path = tmp_path / "run.mat"
+    golden_path = tmp_path / "golden.mat"
+    write_mat(run_path, run_payload)
+    write_mat(golden_path, golden_payload)
+    ok, _, _ = _compare_mat(run_path, golden_path, ToleranceConfig())
+    return ok
+
+
+def test_verify_compares_complex_phase_magnitude(tmp_path: Path) -> None:
+    assert not _compare_payloads(
+        tmp_path,
+        {"ph": np.asarray([[0.0 + 2.0j]])},
+        {"ph": np.asarray([[0.0 + 1.0j]])},
+    )
+
+
+def test_verify_does_not_wrap_unwrapped_phase_products(tmp_path: Path) -> None:
+    for key in ("ph_uw", "dph_space_uw"):
+        assert not _compare_payloads(
+            tmp_path,
+            {key: np.asarray([[2.0 * np.pi]])},
+            {key: np.asarray([[0.0]])},
+        )
+
+
+def test_verify_retains_wrap_equivalence_for_angular_noise(tmp_path: Path) -> None:
+    assert _compare_payloads(
+        tmp_path,
+        {"dph_noise": np.asarray([[2.0 * np.pi + 0.25]])},
+        {"dph_noise": np.asarray([[0.25]])},
+    )

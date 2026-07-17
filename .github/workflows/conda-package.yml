@@ -1,0 +1,245 @@
+name: Conda package
+
+on:
+  push:
+    branches:
+      - main
+      - pure-rust
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish_dev:
+        description: Upload the tested tag artifacts to sirbastiano/label/dev
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conda-${{ github.ref }}-${{ inputs.publish_dev || false }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_dev != true }}
+
+env:
+  RATTLER_BUILD_VERSION: v0.68.0
+
+jobs:
+  prepare:
+    name: Validate package metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      source_url: ${{ steps.metadata.outputs.source_url }}
+      source_sha256: ${{ steps.metadata.outputs.source_sha256 }}
+      tagged: ${{ steps.metadata.outputs.tagged }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Check version and release source
+        id: metadata
+        shell: bash
+        env:
+          PUBLISH_DEV: ${{ inputs.publish_dev || false }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\([^"]*\)"/\1/p' Cargo.toml)"
+          recipe_version="$(sed -n 's/^  version: "\([^"]*\)"/\1/p' recipe/recipe.yaml | head -n 1)"
+          if [[ -z "$version" || "$version" != "$recipe_version" ]]; then
+            echo "Cargo version '$version' does not match recipe version '$recipe_version'" >&2
+            exit 1
+          fi
+
+          tagged=false
+          source_url=""
+          source_sha256=""
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            expected_tag="v$version"
+            if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+              echo "Release tag '$GITHUB_REF_NAME' must equal '$expected_tag'" >&2
+              exit 1
+            fi
+            tagged=true
+            source_commit="$(git rev-parse HEAD)"
+            source_url="https://github.com/$GITHUB_REPOSITORY/archive/$source_commit.tar.gz"
+            curl --fail --location --retry 3 "$source_url" --output "$RUNNER_TEMP/pystamps-source.tar.gz"
+            source_sha256="$(sha256sum "$RUNNER_TEMP/pystamps-source.tar.gz" | cut -d ' ' -f 1)"
+          fi
+
+          if [[ "$PUBLISH_DEV" == "true" && "$tagged" != "true" ]]; then
+            echo "Development-channel publication requires workflow_dispatch on v$version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_url=$source_url" >> "$GITHUB_OUTPUT"
+          echo "source_sha256=$source_sha256" >> "$GITHUB_OUTPUT"
+          echo "tagged=$tagged" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.subdir }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - subdir: linux-64
+            runner: ubuntu-24.04
+          - subdir: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - subdir: osx-64
+            runner: macos-15-intel
+          - subdir: osx-arm64
+            runner: macos-15
+          - subdir: win-64
+            runner: windows-2022
+          - subdir: win-arm64
+            runner: windows-2022
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Build and test package
+        uses: prefix-dev/rattler-build-action@1ca5f45832f419a46d1326ccc5861d7e14d67c44 # v0.2.39
+        env:
+          PYSTAMPS_SOURCE_URL: ${{ needs.prepare.outputs.source_url }}
+          PYSTAMPS_SOURCE_SHA256: ${{ needs.prepare.outputs.source_sha256 }}
+        with:
+          rattler-build-version: ${{ env.RATTLER_BUILD_VERSION }}
+          recipe-path: recipe/recipe.yaml
+          upload-artifact: false
+          build-args: >-
+            --channel conda-forge
+            --channel-priority strict
+            --target-platform ${{ matrix.subdir }}
+            --test native
+            --package-format conda
+            --output-dir dist-conda
+
+      - name: Save package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: conda-${{ matrix.subdir }}
+          path: dist-conda/${{ matrix.subdir }}/*.conda
+          if-no-files-found: error
+          retention-days: 14
+
+  test-win-arm64:
+    name: Test win-arm64 natively
+    needs:
+      - prepare
+      - build
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - name: Download win-arm64 package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: conda-win-arm64
+          path: dist-conda/win-arm64
+
+      - name: Install Rattler Build
+        uses: prefix-dev/rattler-build-action@1ca5f45832f419a46d1326ccc5861d7e14d67c44 # v0.2.39
+        with:
+          rattler-build-version: ${{ env.RATTLER_BUILD_VERSION }}
+          setup-only: true
+
+      - name: Test package in a clean environment
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem "dist-conda/win-arm64" -Filter "*.conda")
+          if ($packages.Count -ne 1) {
+            throw "Expected one win-arm64 package, found $($packages.Count)"
+          }
+          rattler-build test --package-file $packages[0].FullName `
+            --channel conda-forge --channel-priority strict
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  publish-dev:
+    name: Publish tested artifacts to dev
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.publish_dev == true &&
+      needs.prepare.outputs.tagged == 'true'
+    needs:
+      - prepare
+      - build
+      - test-win-arm64
+    runs-on: ubuntu-24.04
+    environment: anaconda-dev
+    steps:
+      - name: Download tested packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: conda-*
+          path: dist-conda
+
+      - name: Install Rattler Build
+        uses: prefix-dev/rattler-build-action@1ca5f45832f419a46d1326ccc5861d7e14d67c44 # v0.2.39
+        with:
+          rattler-build-version: ${{ env.RATTLER_BUILD_VERSION }}
+          setup-only: true
+
+      - name: Validate artifact set
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          expected=(linux-64 linux-aarch64 osx-64 osx-arm64 win-64 win-arm64)
+          declare -A expected_arch=(
+            [linux-64]=x86_64
+            [linux-aarch64]=aarch64
+            [osx-64]=x86_64
+            [osx-arm64]=arm64
+            [win-64]=x86_64
+            [win-arm64]=arm64
+          )
+          : > "$RUNNER_TEMP/pystamps-conda-packages.txt"
+          mapfile -t all_packages < <(find dist-conda -type f -name "*.conda" | sort)
+          if [[ "${#all_packages[@]}" -ne "${#expected[@]}" ]]; then
+            echo "Expected exactly six Conda artifacts, found ${#all_packages[@]}" >&2
+            exit 1
+          fi
+          for subdir in "${expected[@]}"; do
+            package_dir="dist-conda/conda-$subdir"
+            mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name "pystamps-$VERSION-*.conda")
+            if [[ "${#packages[@]}" -ne 1 ]]; then
+              echo "Expected one pystamps $VERSION artifact for $subdir" >&2
+              exit 1
+            fi
+            rattler-build package inspect --all --json "${packages[0]}" |
+              jq --exit-status \
+                --arg version "$VERSION" \
+                --arg subdir "$subdir" \
+                --arg arch "${expected_arch[$subdir]}" \
+                '.index.name == "pystamps" and
+                 .index.version == $version and
+                 .index.subdir == $subdir and
+                 .index.arch == $arch and
+                 .index.build_number == 0'
+            printf '%s\n' "${packages[0]}" >> "$RUNNER_TEMP/pystamps-conda-packages.txt"
+          done
+
+      - name: Upload to sirbastiano/label/dev
+        shell: bash
+        env:
+          ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$ANACONDA_API_KEY" ]]; then
+            echo "ANACONDA_API_KEY is not configured" >&2
+            exit 1
+          fi
+          mapfile -t packages < "$RUNNER_TEMP/pystamps-conda-packages.txt"
+          if [[ "${#packages[@]}" -ne 6 ]]; then
+            echo "Validated artifact manifest does not contain six packages" >&2
+            exit 1
+          fi
+          rattler-build upload anaconda \
+            --owner sirbastiano \
+            --channel dev \
+            "${packages[@]}"

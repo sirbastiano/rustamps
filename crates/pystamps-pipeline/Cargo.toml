@@ -1,0 +1,17 @@
+[package]
+name = "pystamps-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+delaunator.workspace = true
+num-complex.workspace = true
+pystamps-core = { path = "../pystamps-core" }
+pystamps-io = { path = "../pystamps-io" }
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true

@@ -22,6 +22,7 @@ DEFAULT_GLOBS: tuple[str, ...] = (
     "ph2.mat",
     "phuw2.mat",
     "scla2.mat",
+    "scn2.mat",
     "mean_v.mat",
     "ifgstd2.mat",
     "uw_space_time.mat",
@@ -135,6 +136,7 @@ _UNWRAP_SMOOTHING_ARTIFACTS = {
 _UNWRAPPED_NOISE_STATS_ARTIFACTS = {
     "scla2.mat",
     "scla_smooth2.mat",
+    "scn2.mat",
     "mean_v.mat",
     "mv2.mat",
     "uw_space_time.mat",
@@ -260,9 +262,7 @@ def _compare_mat(run_mat: Path, golden_mat: Path, tol: ToleranceConfig) -> tuple
         except TypeError:
             close = np.array_equal(lhs, rhs, equal_nan=True)
         if not close:
-            lhs_f = np.asarray(lhs, dtype=np.float64)
-            rhs_f = np.asarray(rhs, dtype=np.float64)
-            max_abs = float(np.nanmax(np.abs(lhs_f - rhs_f)))
+            max_abs = float(np.nanmax(np.abs(np.asarray(lhs) - np.asarray(rhs))))
             return (
                 False,
                 f"Value mismatch for key '{key}', max_abs={max_abs:.6g}",

@@ -3,57 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Testing - pySTAMPS Docs</title>
+  <title>Native testing - pySTAMPS</title>
   <link rel="stylesheet" href="assets/styles.css" />
-  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
-  <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS Docs</h1></div>
-    <small>Testing Guide</small>
-    <nav>
-      <div class="nav-group"><h2>Guide</h2><ul class="nav-list"><li><a href="index.html">Introduction</a></li><li><a href="pipeline-science-guide.html">Pipeline Guide</a></li><li><a href="getting-started.html">Getting Started</a></li><li><a href="installation.html">Installation</a></li><li><a href="quickstart.html">Quick Start</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="configuration.html">Configuration</a></li><li><a href="usage.html">Usage</a></li><li><a class="active" href="testing.html">Testing</a></li><li><a href="verification.html">Verification</a></li><li><a href="contributing.html">Contributing</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
-      <div class="nav-group"><h2>API</h2><ul class="nav-list"><li><a href="api/pystamps.html">Package</a></li><li><a href="api/configuration.html">config</a></li><li><a href="api/cli.html">cli</a></li><li><a href="api/status.html">status</a></li><li><a href="api/verify.html">verify</a></li><li><a href="api/parity_contract.html">parity_contract</a></li><li><a href="api/io_dataset.html">io.dataset</a></li><li><a href="api/io_mat.html">io.mat</a></li><li><a href="api/runtime.html">runtime</a></li><li><a href="api/kernels.html">kernels</a></li><li><a href="api/pipeline_types.html">pipeline.types</a></li><li><a href="api/pipeline_stages.html">pipeline.stages</a></li><li><a href="api/pipeline_ported.html">pipeline.ported</a></li><li><a href="api/compat_legacy.html">compat.legacy</a></li></ul></div>
-    </nav>
-  </aside>
+  <aside class="sidebar"><div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div><small>Standalone Rust runtime</small></aside>
   <main class="content">
     <div class="breadcrumb">Home / Testing</div>
-    <h1>Testing</h1>
-
+    <h1>Native validation gates</h1>
     <section class="card">
-      <h2>Running tests</h2>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pytest -q</code></pre>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run --with build python -m build --sdist --wheel
-uv run --with twine python -m twine check dist/*</code></pre>
-      <p>The repository includes committed unit tests. Dataset-backed parity tests are kept in-tree as optional checks and skip cleanly when the local validation datasets are absent, so <span class="code-inline">uv run pytest -q</span> remains the clean-checkout gate.</p>
-      <p>Release wheel production is separate from the smoke-build command and uses <span class="code-inline">cibuildwheel</span> on the release hosts.</p>
+      <h2>Repository checks</h2>
+      <pre><code class="language-bash">cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo build --release --locked
+cargo tree -p pystamps</code></pre>
+      <p>The production release surface is Cargo-only. There is no Python wheel or source-distribution gate.</p>
     </section>
-
     <section class="card">
-      <h2>Test structure</h2>
-      <ul>
-        <li>Default unit tests cover config loading, dataset discovery, acceleration helpers, and Stage-7 helper math.</li>
-        <li>Dataset-backed parity tests and audits require local inputs under <span class="code-inline">inputs_and_outputs/</span> and are not part of the minimal fresh-clone contract.</li>
-        <li>Parity checks are documented in the verification guide so you can keep the test command list focused.</li>
-      </ul>
+      <h2>Dataset validation</h2>
+      <pre><code class="language-bash">pystamps run --dataset RUN_COPY --start-step 1 --end-step 8
+pystamps verify --run RUN_COPY --golden GOLDEN_DATASET</code></pre>
+      <p>Use fresh upstream inputs when validating scientific changes. A checkpoint-resume test is additional evidence, not a replacement for a fresh solve.</p>
     </section>
-
     <section class="card">
-      <h2>Coverage</h2>
-      <p>Validation starts with <span class="code-inline">uv run pytest -q</span>, <span class="code-inline">uv run --with build python -m build --sdist --wheel</span>, and <span class="code-inline">uv run --with twine python -m twine check dist/*</span>, then moves to parity-audit validation in <a href="verification.html">Verification</a>.</p>
-      <p>For PyPI wheel releases, use <span class="code-inline">uv run --with cibuildwheel python -m cibuildwheel --platform ... --output-dir dist</span> on the Linux, macOS, and Windows release hosts.</p>
-      <p>For parity workflows, do not guess a Makefile, CI wrapper, or reduced audit dataset list. Use the documented audited dataset set, the generated <span class="code-inline">latest_audit.json</span>, and the explicit verify command shape.</p>
-      <div class="callout info">In-code assertions and explicit exceptions define many behavior guarantees where test coverage is expected to assert failure conditions.</div>
+      <h2>Optional oracle checks</h2>
+      <p>The historical implementation is isolated for developer comparison only:</p>
+      <pre><code class="language-bash">make oracle-setup
+make oracle-test</code></pre>
     </section>
-
-    <section class="card">
-      <h2>Validation workflow</h2>
-      <p>Parity audits and explicit verify command patterns are described in <a href="verification.html">Verification</a>.</p>
-      <p>The verification flow includes contract construction, script orchestration, and CLI comparison commands used by release quality checks.</p>
-      <pre><button class="copy-btn">Copy</button><code class="language-bash">uv run pystamps verify --run RUN_COPY --golden ./inputs_and_outputs/InSAR_dataset_test</code></pre>
-      <p>Carry the fresh <span class="code-inline">run_root</span> from <span class="code-inline">latest_audit.json</span> into that verify step; stale-output reuse keeps the validation gate red.</p>
-  </section>
   </main>
 </div>
 </body>
