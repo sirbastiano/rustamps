@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Native testing - pySTAMPS</title>
+  <title>Native testing - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
-  <aside class="sidebar"><div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div><small>Standalone Rust runtime</small></aside>
+  <aside class="sidebar"><div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div><small>Standalone Rust runtime</small></aside>
   <main class="content">
     <div class="breadcrumb">Home / Testing</div>
     <h1>Native validation gates</h1>
@@ -17,13 +17,13 @@
       <pre><code class="language-bash">cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo build --release --locked
-cargo tree -p pystamps</code></pre>
+cargo tree -p rustamps</code></pre>
       <p>The production release surface is Cargo-only. There is no Python wheel or source-distribution gate.</p>
     </section>
     <section class="card">
       <h2>Dataset validation</h2>
-      <pre><code class="language-bash">pystamps run --dataset RUN_COPY --start-step 1 --end-step 8
-pystamps verify --run RUN_COPY --golden GOLDEN_DATASET</code></pre>
+      <pre><code class="language-bash">rustamps run --dataset RUN_COPY --start-step 1 --end-step 8
+rustamps verify --run RUN_COPY --golden GOLDEN_DATASET</code></pre>
       <p>Use fresh upstream inputs when validating scientific changes. A checkpoint-resume test is additional evidence, not a replacement for a fresh solve.</p>
     </section>
     <section class="card">

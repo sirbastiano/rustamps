@@ -1,6 +1,6 @@
-# pySTAMPS Native Pipeline and Science Guide
+# Rustamps Native Pipeline and Science Guide
 
-pySTAMPS is a standalone Rust implementation of the StaMPS-style single-master
+Rustamps is a standalone Rust implementation of the StaMPS-style single-master
 processing workflow. The production binary reads and writes the established
 MATLAB artifact layout, but it does not load Python, MATLAB, SNAPHU, Triangle,
 or another executable at runtime.
@@ -16,7 +16,7 @@ The dataset directory is the processing state. Patch products live below
 
 ```bash
 cp -a /path/to/source_dataset /path/to/run_dataset
-pystamps status --dataset /path/to/run_dataset
+rustamps status --dataset /path/to/run_dataset
 ```
 
 MAT values preserve the StaMPS contracts that matter downstream:
@@ -47,7 +47,7 @@ For a compatible SNAP export that has not been prepared, synthesize native
 patch inputs first:
 
 ```bash
-pystamps prep snap --dataset /path/to/run_dataset
+rustamps prep snap --dataset /path/to/run_dataset
 ```
 
 The preparation command derives wavelength and heading from the master RSLC
@@ -59,9 +59,9 @@ sensor metadata is rejected rather than replaced with a plausible constant.
 Rehearse the selected range without writes, then run it:
 
 ```bash
-pystamps run --dataset /path/to/run_dataset \
+rustamps run --dataset /path/to/run_dataset \
   --start-step 1 --end-step 8 --dry-run
-pystamps run --dataset /path/to/run_dataset \
+rustamps run --dataset /path/to/run_dataset \
   --start-step 1 --end-step 8
 ```
 
@@ -70,7 +70,7 @@ dependent later artifacts. Start step `0` resumes from valid completion
 artifacts:
 
 ```bash
-pystamps run --dataset /path/to/run_dataset --start-step 0 --end-step 8
+rustamps run --dataset /path/to/run_dataset --start-step 0 --end-step 8
 ```
 
 Stage 6 additionally writes atomic, fingerprinted per-interferogram
@@ -125,7 +125,7 @@ bounded Stage 6 comparison as approval of downstream SCLA or SCN differences.
 When the golden tree includes grid caches, also pass `--final-products-only`.
 
 ```bash
-pystamps --config configs/stage6-fast.yaml run \
+rustamps --config configs/stage6-fast.yaml run \
   --dataset /path/to/run_dataset --start-step 6 --end-step 8
 ```
 
@@ -135,7 +135,7 @@ Strict verification compares artifact presence, keys, dimensions, types, and
 values:
 
 ```bash
-pystamps verify \
+rustamps verify \
   --run /path/to/run_dataset \
   --golden /path/to/reference_dataset
 ```
@@ -145,7 +145,7 @@ Limit the contract to a completed prefix with `--through-stage 1` through
 numeric outliers and still enforces hard error caps and structural equality:
 
 ```bash
-pystamps --config configs/stage6-fast.yaml verify \
+rustamps --config configs/stage6-fast.yaml verify \
   --run /path/to/run_dataset \
   --golden /path/to/reference_dataset \
   --profile scientific --final-products-only --through-stage 6
@@ -169,7 +169,7 @@ deramping, and Stage 8 kriging substitution. See
 
 Legacy `auto` values normalize to native. Python, CUDA, external-solver,
 per-kernel override, and reference-replay configuration values are rejected.
-Use `pystamps verify` to compare a run with an independently produced oracle.
+Use `rustamps verify` to compare a run with an independently produced oracle.
 
 ## Developer oracle
 

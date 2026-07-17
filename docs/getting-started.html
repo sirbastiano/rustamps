@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Getting started - pySTAMPS native runtime</title>
+  <title>Getting started - Rustamps native runtime</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -22,32 +22,32 @@
   </aside>
   <main class="content">
     <div class="breadcrumb">Home / Getting started</div>
-    <h1>Getting started with native pySTAMPS</h1>
-    <p>pySTAMPS is one Rust binary that prepares compatible SNAP data, runs the eight-stage StaMPS-style workflow, and verifies its artifacts. Production processing has no external scientific executable or language runtime.</p>
+    <h1>Getting started with native Rustamps</h1>
+    <p>Rustamps is one Rust binary that prepares compatible SNAP data, runs the eight-stage StaMPS-style workflow, and verifies its artifacts. Production processing has no external scientific executable or language runtime.</p>
 
     <section class="card">
       <h2>Install and inspect</h2>
       <pre><code class="language-bash">cargo build --release --locked
 cargo install --path . --locked
-pystamps describe-backends
-pystamps describe-inputs --stage all</code></pre>
+rustamps describe-backends
+rustamps describe-inputs --stage all</code></pre>
     </section>
 
     <section class="card">
       <h2>Prepare data safely</h2>
       <p>Process a copy, because a positive stage range replaces selected artifacts and invalidates dependent later products.</p>
       <pre><code class="language-bash">cp -a /path/to/source_dataset /path/to/run_dataset
-pystamps status --dataset /path/to/run_dataset</code></pre>
+rustamps status --dataset /path/to/run_dataset</code></pre>
       <p>If the copy is a compatible SNAP export without patch inputs:</p>
-      <pre><code class="language-bash">pystamps prep snap --dataset /path/to/run_dataset</code></pre>
+      <pre><code class="language-bash">rustamps prep snap --dataset /path/to/run_dataset</code></pre>
       <p>Preparation derives wavelength and heading from the master RSLC metadata. Missing or invalid sensor metadata fails explicitly.</p>
     </section>
 
     <section class="card">
       <h2>Run or resume</h2>
-      <pre><code class="language-bash">pystamps run --dataset /path/to/run_dataset \
+      <pre><code class="language-bash">rustamps run --dataset /path/to/run_dataset \
   --start-step 1 --end-step 8 --dry-run
-pystamps run --dataset /path/to/run_dataset \
+rustamps run --dataset /path/to/run_dataset \
   --start-step 1 --end-step 8</code></pre>
       <p>Use <span class="code-inline">--start-step 0</span> to resume from existing completion artifacts. Stage 6 also reuses only atomic per-interferogram checkpoints whose scientific fingerprint still matches.</p>
     </section>
@@ -55,14 +55,14 @@ pystamps run --dataset /path/to/run_dataset \
     <section class="card">
       <h2>Choose the grid deliberately</h2>
       <p>The default native configuration preserves the dataset unwrap grid and solves integer flow to convergence. The balanced and fast profiles reduce dense grid cells by increasing spacing; this can produce large speed gains at lower spatial resolution.</p>
-      <pre><code class="language-bash">pystamps --config configs/stage6-balanced.yaml run \
+      <pre><code class="language-bash">rustamps --config configs/stage6-balanced.yaml run \
   --dataset /path/to/run_dataset --start-step 6 --end-step 8</code></pre>
       <p>A bounded flow-pass approximation is not supported because it failed scientific validation.</p>
     </section>
 
     <section class="card">
       <h2>Verify before accepting results</h2>
-      <pre><code class="language-bash">pystamps verify \
+      <pre><code class="language-bash">rustamps verify \
   --run /path/to/run_dataset \
   --golden /path/to/reference_dataset</code></pre>
       <p>The verifier checks artifact structure as well as numeric values. Read the full <a href="pipeline-science-guide.html">science guide</a> before adopting a speed profile.</p>

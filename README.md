@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/pystamps-logo.svg" alt="pySTAMPS" style="width: 200px; height: auto; max-width: 100%;" />
+<img src="docs/assets/rustamps-logo.svg" alt="Rustamps" style="width: 200px; height: auto; max-width: 100%;" />
 
-# pySTAMPS
+# Rustamps
 
 Standalone Rust implementation of the StaMPS persistent-scatterer workflow.
 
@@ -18,14 +18,14 @@ does not compile or install them.
 
 ### Conda package
 
-The `pystamps` 0.2.0 development-channel Conda package contains the native Rust
+The `rustamps` 0.3.0 development-channel Conda package contains the native Rust
 CLI only; it does not install Python, a system HDF5 library, SNAPHU, or another
 scientific executable. Install and smoke-test it in a clean environment:
 
 ```bash
-conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
-conda run -n pystamps pystamps --version
-conda run -n pystamps pystamps describe-backends
+conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda run -n rustamps rustamps --version
+conda run -n rustamps rustamps describe-backends
 ```
 
 The compiled package targets `linux-64`, `linux-aarch64`, `osx-64`,
@@ -44,7 +44,7 @@ Install Rust 1.89 or newer, then build and install directly from the repository:
 git clone https://github.com/ESA-PhiLab/pystamps.git
 cd pystamps
 cargo install --path . --locked
-pystamps --help
+rustamps --help
 ```
 
 For a checkout-local release build:
@@ -70,7 +70,7 @@ Run preparation on a writeable dataset directory containing the SNAP-exported
 rasters and metadata:
 
 ```bash
-pystamps prep snap \
+rustamps prep snap \
   --dataset /path/to/dataset \
   --amp-dispersion 0.4 \
   --range-patches 1 \
@@ -86,8 +86,8 @@ Always work on a copy when comparing with a reference result:
 
 ```bash
 cp -a /path/to/source_dataset /path/to/run_dataset
-pystamps status --dataset /path/to/run_dataset
-pystamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8
+rustamps status --dataset /path/to/run_dataset
+rustamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8
 ```
 
 The example uses POSIX `cp`; in PowerShell, use
@@ -97,7 +97,7 @@ Run any contiguous stage range by changing `--start-step` and `--end-step`.
 Preview the planned writes with `--dry-run`:
 
 ```bash
-pystamps run \
+rustamps run \
   --dataset /path/to/run_dataset \
   --start-step 3 \
   --end-step 5 \
@@ -108,7 +108,7 @@ The default configuration is native-only. An explicit YAML file can tune worker
 counts and scientific tolerances:
 
 ```bash
-pystamps --config configs/native-kernels.yaml run \
+rustamps --config configs/native-kernels.yaml run \
   --dataset /path/to/run_dataset \
   --start-step 1 \
   --end-step 8
@@ -127,7 +127,7 @@ bound. Scheduling does not alter scientific checkpoint fingerprints.
 Compare a run tree with a retained golden tree:
 
 ```bash
-pystamps verify \
+rustamps verify \
   --run /path/to/run_dataset \
   --golden /path/to/golden_dataset
 ```
@@ -157,6 +157,8 @@ fingerprinted, checksummed, and atomically written. The final `phuw2.mat` is
 still published transactionally only after every interferogram finishes.
 Each run also writes a machine-readable phase and per-IFG timing report below
 `.pystamps-stage6/`.
+That directory name is retained as an on-disk compatibility contract for
+existing processed datasets.
 `configs/stage6-balanced.yaml` and `configs/stage6-fast.yaml` provide explicit
 coarser-grid profiles for users who prefer a large speed gain. Both retain a
 converged flow solve, and their results should be verified against the strict
@@ -183,7 +185,7 @@ phase differences from the historical filter.
 cargo fmt --all -- --check
 cargo test --workspace
 cargo build --release
-cargo tree -p pystamps
+cargo tree -p rustamps
 ```
 
 The production dependency audit should show no `pyo3`, `numpy`, Python runtime,
@@ -194,13 +196,13 @@ Cargo accidentally.
 ## Runtime commands
 
 ```text
-pystamps prep snap         prepare native SNAP exports
-pystamps run               execute Stages 1–8
-pystamps status            inspect available artifacts
-pystamps verify            compare a run with a golden dataset
-pystamps describe-inputs   describe per-stage data scope
-pystamps describe-backends report the compiled runtime backend
-pystamps list-legacy       inventory an external StaMPS script tree
+rustamps prep snap         prepare native SNAP exports
+rustamps run               execute Stages 1–8
+rustamps status            inspect available artifacts
+rustamps verify            compare a run with a golden dataset
+rustamps describe-inputs   describe per-stage data scope
+rustamps describe-backends report the compiled runtime backend
+rustamps list-legacy       inventory an external StaMPS script tree
 ```
 
 `list-legacy` is read-only inventory support for audits; it never executes the
@@ -208,11 +210,11 @@ listed scripts.
 
 ## Repository layout
 
-- `crates/pystamps-core`: numerical kernels and scientific stage models
-- `crates/pystamps-io`: pure-Rust MAT and SNAP dataset I/O
-- `crates/pystamps-pipeline`: transactional stage orchestration
-- `crates/pystamps-verify`: tolerant scientific comparison
-- `crates/pystamps-cli`: source for the installed `pystamps` binary
+- `crates/rustamps-core`: numerical kernels and scientific stage models
+- `crates/rustamps-io`: pure-Rust MAT and SNAP dataset I/O
+- `crates/rustamps-pipeline`: transactional stage orchestration
+- `crates/rustamps-verify`: tolerant scientific comparison
+- `crates/rustamps-cli`: source for the installed `rustamps` binary
 - `pystamps/` and `src/`: retained legacy/reference implementations
 
 `oracle/pyproject.toml` only locks dependencies for that source-only oracle and

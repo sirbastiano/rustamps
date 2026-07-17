@@ -1,12 +1,12 @@
 # Native Command and Configuration Reference
 
-The supported public interface is the standalone `pystamps` Rust binary. It
+The supported public interface is the standalone `rustamps` Rust binary. It
 has no production Python API or dynamically selected scientific backend.
 
 ## Global option
 
 ```text
-pystamps [--config CONFIG] COMMAND
+rustamps [--config CONFIG] COMMAND
 ```
 
 `--config` accepts YAML or JSON. Unknown fields and unsupported legacy values
@@ -14,21 +14,21 @@ are rejected during loading.
 
 ## Commands
 
-### `pystamps status`
+### `rustamps status`
 
 Inspect the available dataset layout and stage completion artifacts without
 changing files.
 
 ```bash
-pystamps status --dataset DATASET
+rustamps status --dataset DATASET
 ```
 
-### `pystamps run`
+### `rustamps run`
 
 Plan or execute a stage range.
 
 ```text
-pystamps run --dataset DATASET
+rustamps run --dataset DATASET
              [--start-step 0..8]
              [--end-step 1..8]
              [--dry-run]
@@ -39,12 +39,12 @@ The default range is 1–8. A positive start step recomputes the selected range
 and invalidates dependent later products. Start step `0` resumes from existing
 valid completion artifacts. `--cpu-workers 0` uses the available CPU budget.
 
-### `pystamps prep snap`
+### `rustamps prep snap`
 
 Convert a compatible SNAP export into native patch inputs.
 
 ```text
-pystamps prep snap --dataset DATASET
+rustamps prep snap --dataset DATASET
   [--master-date YYYYMMDD]
   [--amp-dispersion VALUE]
   [--range-patches N] [--azimuth-patches N]
@@ -55,12 +55,12 @@ pystamps prep snap --dataset DATASET
 Defaults are amplitude dispersion `0.4`, one range patch, one azimuth patch,
 and 50-pixel overlaps. Existing output is preserved unless `--force` is used.
 
-### `pystamps verify`
+### `rustamps verify`
 
 Compare production artifacts with a golden dataset.
 
 ```text
-pystamps verify --run RUN --golden GOLDEN
+rustamps verify --run RUN --golden GOLDEN
   [--profile strict|scientific]
   [--through-stage 1..8]
   [--final-products-only]
@@ -74,10 +74,10 @@ intermediates while retaining final products for every included stage.
 ### Inspection commands
 
 ```bash
-pystamps describe-backends
-pystamps describe-inputs --stage all
-pystamps describe-inputs --stage 1 --dataset DATASET --patch PATCH_1
-pystamps list-legacy --stamps-root /path/to/StaMPS
+rustamps describe-backends
+rustamps describe-inputs --stage all
+rustamps describe-inputs --stage 1 --dataset DATASET --patch PATCH_1
+rustamps list-legacy --stamps-root /path/to/StaMPS
 ```
 
 `describe-backends` reports the standalone native provider and its runtime

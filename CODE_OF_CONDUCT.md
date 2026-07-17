@@ -2,7 +2,7 @@
 
 ## Contributor Covenant Code of Conduct
 
-pySTAMPS follows a Contributor Covenant-based code of conduct for all project spaces: issues, pull requests, discussions, and code review.
+Rustamps follows a Contributor Covenant-based code of conduct for all project spaces: issues, pull requests, discussions, and code review.
 
 ## Our Pledge
 

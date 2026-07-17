@@ -1,12 +1,12 @@
 schema_version: 1
 
 context:
-  version: "0.2.0"
-  source_url: ${{ env.get("PYSTAMPS_SOURCE_URL", default="") }}
-  source_sha256: ${{ env.get("PYSTAMPS_SOURCE_SHA256", default="") }}
+  version: "0.3.0"
+  source_url: ${{ env.get("RUSTAMPS_SOURCE_URL", default="") }}
+  source_sha256: ${{ env.get("RUSTAMPS_SOURCE_SHA256", default="") }}
 
 package:
-  name: pystamps
+  name: rustamps
   version: ${{ version }}
 
 source:
@@ -43,30 +43,30 @@ requirements:
 
 tests:
   - script:
-      - pystamps --version
-      - pystamps --help
-      - pystamps describe-backends
+      - rustamps --version
+      - rustamps --help
+      - rustamps describe-backends
       - if: unix
         then:
-          - test "$(pystamps --version)" = "pystamps 0.2.0"
-          - "pystamps describe-backends | grep -F '\"runtime_external_dependencies\": []'"
+          - test "$(rustamps --version)" = "rustamps 0.3.0"
+          - "rustamps describe-backends | grep -F '\"runtime_external_dependencies\": []'"
         else:
           - >-
-            powershell -NoProfile -Command "$version = (& pystamps --version | Out-String).Trim();
-            if ($version -ne 'pystamps 0.2.0') { exit 1 };
-            $data = (& pystamps describe-backends | Out-String | ConvertFrom-Json);
+            powershell -NoProfile -Command "$version = (& rustamps --version | Out-String).Trim();
+            if ($version -ne 'rustamps 0.3.0') { exit 1 };
+            $data = (& rustamps describe-backends | Out-String | ConvertFrom-Json);
             $property = $data.PSObject.Properties['runtime_external_dependencies'];
             if ($null -eq $property -or -not ($property.Value -is [System.Array]) -or $property.Value.Count -ne 0) { exit 1 }"
   - package_contents:
       bin:
-        - pystamps
+        - rustamps
       strict: true
 
 about:
   homepage: https://github.com/ESA-PhiLab/pystamps
   summary: Standalone Rust implementation of the StaMPS persistent-scatterer workflow
   description: |
-    pySTAMPS provides the complete StaMPS persistent-scatterer processing
+    Rustamps provides the complete StaMPS persistent-scatterer processing
     pipeline as a native Rust command-line application with no Python,
     SNAPHU, or system HDF5 runtime dependency.
   license: Apache-2.0

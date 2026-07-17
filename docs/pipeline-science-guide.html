@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Native pipeline science guide - pySTAMPS</title>
+  <title>Native pipeline science guide - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -59,15 +59,15 @@
     <section class="card">
       <h2>Explicit speed/accuracy trade</h2>
       <p>The supported speed lever is grid spacing. The balanced profile multiplies spacing by 4 and the fast profile by 10, reducing dense grid cells by roughly 16 and 100 times respectively. Both profiles retain a converged flow solve.</p>
-      <pre><code class="language-bash">pystamps --config configs/stage6-fast.yaml run \
+      <pre><code class="language-bash">rustamps --config configs/stage6-fast.yaml run \
   --dataset DATASET --start-step 6 --end-step 8</code></pre>
       <p>Grid coarsening changes spatial sampling. Validate the chosen profile against a strict-grid result before accepting it for a dataset.</p>
     </section>
 
     <section class="card">
       <h2>Verification is the acceptance gate</h2>
-      <pre><code class="language-bash">pystamps verify --run RUN --golden GOLDEN
-pystamps --config configs/stage6-fast.yaml verify \
+      <pre><code class="language-bash">rustamps verify --run RUN --golden GOLDEN
+rustamps --config configs/stage6-fast.yaml verify \
   --run RUN --golden GOLDEN \
   --profile scientific --through-stage 6</code></pre>
       <p>Strict mode checks exact structure and configured numeric tolerances. Scientific mode permits only bounded outliers with hard caps. Unwrapped phase is never wrapped merely to pass comparison.</p>

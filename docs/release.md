@@ -1,6 +1,6 @@
 # Native release process
 
-`pystamps` is released as a Rust binary. Python wheels, sdists, PyPI, PyO3,
+`rustamps` is released as a Rust binary. Python wheels, sdists, PyPI, PyO3,
 SNAPHU, Triangle, and system HDF5 are outside the production release surface.
 The retained Python tree is a source-only scientific oracle.
 
@@ -19,15 +19,15 @@ Run the complete Cargo gate from the repository root:
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo build --release --locked
-cargo tree -p pystamps -e normal,build
+cargo tree -p rustamps -e normal,build
 ```
 
 The dependency tree must not contain `pyo3`, `numpy`, `hdf5-sys`, a Python
 runtime, or wrappers for SNAPHU or Triangle. On macOS, `otool -L
-target/release/pystamps` should list only operating-system libraries. Use the
+target/release/rustamps` should list only operating-system libraries. Use the
 corresponding loader inspection on Linux or Windows.
 
-The `Portable Rust installation` workflow must also pass its GNU/musl Linux,
+The `Rustamps portable installation` workflow must also pass its GNU/musl Linux,
 Intel/ARM macOS, and x64/ARM Windows rows. Each row uses Rust 1.89, runs the
 workspace tests, builds a release binary, installs from the checkout, and
 launches the installed command.
@@ -35,17 +35,17 @@ launches the installed command.
 Smoke-test the installed command, not only the checkout binary. On POSIX:
 
 ```bash
-cargo install --path . --locked --root /tmp/pystamps-release
-/tmp/pystamps-release/bin/pystamps --help
-/tmp/pystamps-release/bin/pystamps describe-backends
+cargo install --path . --locked --root /tmp/rustamps-release
+/tmp/rustamps-release/bin/rustamps --help
+/tmp/rustamps-release/bin/rustamps describe-backends
 ```
 
 On Windows PowerShell:
 
 ```powershell
-$root = Join-Path $env:TEMP 'pystamps-release'
+$root = Join-Path $env:TEMP 'rustamps-release'
 cargo install --path . --locked --root $root
-$binary = Join-Path $root 'bin\pystamps.exe'
+$binary = Join-Path $root 'bin\rustamps.exe'
 & $binary --help
 & $binary describe-backends
 ```
@@ -87,7 +87,7 @@ bundled with or required by the release binary.
 
 ### Conda package
 
-The Conda distribution is `pystamps` 0.2.0 and contains only the compiled
+The Conda distribution is `rustamps` 0.3.0 and contains only the compiled
 native CLI plus package and license metadata. It must not contain or depend on
 Python, a system HDF5 library, SNAPHU, the oracle tree, or another scientific
 executable. Conda Linux artifacts target glibc and are not interchangeable with
@@ -99,16 +99,16 @@ Build and validate exactly one package for each supported Conda subdirectory:
 For every artifact, create a clean temporary environment and run:
 
 ```bash
-conda create -n pystamps-package-test -c LOCAL_CHANNEL -c conda-forge pystamps=0.2.0
-conda run -n pystamps-package-test pystamps --version
-conda run -n pystamps-package-test pystamps --help
-conda run -n pystamps-package-test pystamps describe-backends
+conda create -n rustamps-package-test -c LOCAL_CHANNEL -c conda-forge rustamps=0.3.0
+conda run -n rustamps-package-test rustamps --version
+conda run -n rustamps-package-test rustamps --help
+conda run -n rustamps-package-test rustamps describe-backends
 ```
 
 Assert that `describe-backends` reports an empty
 `runtime_external_dependencies` list and that the artifact architecture and
 Conda subdirectory match. The Cargo, recipe, source-tag, and installed-command
-versions must agree. Rebuilding 0.2.0 requires incrementing the Conda build
+versions must agree. Rebuilding 0.3.0 requires incrementing the Conda build
 number; do not overwrite an existing artifact.
 
 Authorized uploads publish the exact locally and natively tested artifacts to
@@ -121,8 +121,8 @@ a repository ruleset, and store the key as an environment secret rather than a
 repository secret. Verify the channel with a clean installation:
 
 ```bash
-conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
-conda run -n pystamps pystamps describe-backends
+conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda run -n rustamps rustamps describe-backends
 ```
 
 Promotion to the `main` label is a separate explicit action. Promote the exact
@@ -134,9 +134,9 @@ to pull-request or ordinary branch jobs.
 1. Tag the exact gated revision as `vX.Y.Z`.
 2. Build each supported target from that tag with `cargo build --release
    --locked --target TARGET`.
-3. Archive the `pystamps` executable with `LICENSE`, `README.md`, and
+3. Archive the `rustamps` executable with `LICENSE`, `README.md`, and
    `docs/native_runtime.md`.
-4. Verify the archive checksum and rerun `pystamps --help` after extraction.
+4. Verify the archive checksum and rerun `rustamps --help` after extraction.
 5. Publish checksums beside the platform archives.
 
 A release remains blocked by a failed Cargo check, an incomplete or stale

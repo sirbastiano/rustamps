@@ -1,5 +1,5 @@
 [package]
-name = "pystamps"
+name = "rustamps"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -15,15 +15,15 @@ autobins = false
 resolver = "2"
 members = [
     ".",
-    "crates/pystamps-core",
-    "crates/pystamps-io",
-    "crates/pystamps-pipeline",
-    "crates/pystamps-verify",
+    "crates/rustamps-core",
+    "crates/rustamps-io",
+    "crates/rustamps-pipeline",
+    "crates/rustamps-verify",
 ]
 default-members = ["."]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.89"
@@ -43,15 +43,15 @@ serde_yaml_ng = "0.10"
 thiserror = "2"
 
 [[bin]]
-name = "pystamps"
-path = "crates/pystamps-cli/src/main.rs"
+name = "rustamps"
+path = "crates/rustamps-cli/src/main.rs"
 
 [dependencies]
 clap.workspace = true
-pystamps-core = { path = "crates/pystamps-core" }
-pystamps-io = { path = "crates/pystamps-io" }
-pystamps-pipeline = { path = "crates/pystamps-pipeline" }
-pystamps-verify = { path = "crates/pystamps-verify" }
+rustamps-core = { path = "crates/rustamps-core" }
+rustamps-io = { path = "crates/rustamps-io" }
+rustamps-pipeline = { path = "crates/rustamps-pipeline" }
+rustamps-verify = { path = "crates/rustamps-verify" }
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true

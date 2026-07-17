@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Native installation - pySTAMPS</title>
+  <title>Native installation - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -27,11 +27,11 @@
 
     <section class="card">
       <h2>Conda package</h2>
-      <p>The <span class="code-inline">pystamps</span> 0.2.0 development-channel Conda package contains only the native Rust CLI. It does not install Python, a system HDF5 library, SNAPHU, or another external scientific executable.</p>
+      <p>The <span class="code-inline">rustamps</span> 0.3.0 development-channel Conda package contains only the native Rust CLI. It does not install Python, a system HDF5 library, SNAPHU, or another external scientific executable.</p>
       <p>Install and smoke-test it in a clean environment:</p>
-      <pre><code class="language-bash">conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
-conda run -n pystamps pystamps --version
-conda run -n pystamps pystamps describe-backends</code></pre>
+      <pre><code class="language-bash">conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda run -n rustamps rustamps --version
+conda run -n rustamps rustamps describe-backends</code></pre>
       <p>Compiled packages target <span class="code-inline">linux-64</span>, <span class="code-inline">linux-aarch64</span>, <span class="code-inline">osx-64</span>, <span class="code-inline">osx-arm64</span>, <span class="code-inline">win-64</span>, and <span class="code-inline">win-arm64</span>. Linux packages require glibc 2.17 or newer, macOS packages require macOS 11 or newer, and the CLI is neither a musl nor <span class="code-inline">noarch</span> package.</p>
       <p>Windows ARM64 remains experimental on the <span class="code-inline">dev</span> label until native ARM64 CI passes. Promotion of the exact tested artifacts to <span class="code-inline">main</span> requires an explicit release decision.</p>
     </section>
@@ -42,8 +42,8 @@ conda run -n pystamps pystamps describe-backends</code></pre>
 cd pystamps
 cargo build --release --locked
 cargo install --path . --locked
-pystamps --help
-pystamps describe-backends</code></pre>
+rustamps --help
+rustamps describe-backends</code></pre>
       <p><span class="code-inline">describe-backends</span> should report the native provider and an empty runtime-external-dependency list.</p>
     </section>
 
@@ -64,7 +64,7 @@ pystamps describe-backends</code></pre>
       <pre><code class="language-bash">cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo build --release --locked
-cargo tree -p pystamps</code></pre>
+cargo tree -p rustamps</code></pre>
       <p>See <a href="release.md">the native release process</a> for the complete gate.</p>
     </section>
 

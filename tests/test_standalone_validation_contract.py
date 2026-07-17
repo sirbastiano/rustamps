@@ -15,13 +15,31 @@ README = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 NATIVE_DOC = (REPO_ROOT / "docs" / "native_runtime.md").read_text(encoding="utf-8")
 RELEASE_DOC = (REPO_ROOT / "docs" / "release.md").read_text(encoding="utf-8")
 DOC_INDEX = (REPO_ROOT / "docs" / "index.html").read_text(encoding="utf-8")
+RECIPE = (REPO_ROOT / "recipe" / "recipe.yaml").read_text(encoding="utf-8")
+CONDA_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "conda-package.yml").read_text(
+    encoding="utf-8"
+)
+PORTABLE_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "portable-rust.yml").read_text(
+    encoding="utf-8"
+)
+STAGE6_CHECKPOINT = (
+    REPO_ROOT / "crates" / "rustamps-pipeline" / "src" / "native" / "stage6" / "solve_checkpoint.rs"
+).read_text(encoding="utf-8")
+TRANSACTION = (
+    REPO_ROOT / "crates" / "rustamps-io" / "src" / "transaction.rs"
+).read_text(encoding="utf-8")
 
 
 def test_cargo_root_is_the_only_installable_product() -> None:
     assert "autolib = false" in CARGO
     assert "autobins = false" in CARGO
-    assert 'name = "pystamps"' in CARGO
-    assert 'path = "crates/pystamps-cli/src/main.rs"' in CARGO
+    assert 'name = "rustamps"' in CARGO
+    assert 'version = "0.3.0"' in CARGO
+    assert 'path = "crates/rustamps-cli/src/main.rs"' in CARGO
+    for crate in ("core", "io", "pipeline", "verify"):
+        assert f'"crates/rustamps-{crate}"' in CARGO
+        assert f"rustamps-{crate} = " in CARGO
+        assert f"pystamps-{crate}" not in CARGO
     assert "pyo3" not in CARGO.lower()
     assert "numpy" not in CARGO.lower()
 
@@ -40,6 +58,20 @@ def test_locked_production_graph_excludes_runtime_bridges() -> None:
     }
     assert package_names.isdisjoint(forbidden)
     assert "hdf5-pure" in package_names
+    assert {
+        "rustamps",
+        "rustamps-core",
+        "rustamps-io",
+        "rustamps-pipeline",
+        "rustamps-verify",
+    }.issubset(package_names)
+
+
+def test_historical_checkpoint_identifiers_remain_readable() -> None:
+    assert '.pystamps-stage6' in STAGE6_CHECKPOINT
+    assert '"pystamps_stage6_solve_schema"' in STAGE6_CHECKPOINT
+    assert '"pystamps_input_fingerprint"' in STAGE6_CHECKPOINT
+    assert '.pystamps-tmp' in TRANSACTION
 
 
 def test_python_oracle_is_a_non_installable_dev_environment() -> None:
@@ -94,7 +126,28 @@ def test_conda_file_is_oracle_only_not_a_build_surface() -> None:
     assert "wheel" not in ENVIRONMENT
 
 
+def test_release_surfaces_publish_rustamps_0_3_0() -> None:
+    assert 'version: "0.3.0"' in RECIPE
+    assert "name: rustamps" in RECIPE
+    assert "rustamps --version" in RECIPE
+    assert "rustamps 0.3.0" in RECIPE
+    assert "https://github.com/ESA-PhiLab/pystamps" in RECIPE
+    assert "RUSTAMPS_SOURCE_URL" in RECIPE
+    assert "PYSTAMPS_SOURCE_URL" not in RECIPE
+
+    assert "RUSTAMPS_SOURCE_URL" in CONDA_WORKFLOW
+    assert 'name "rustamps-$VERSION-*.conda"' in CONDA_WORKFLOW
+    assert '.index.name == "rustamps"' in CONDA_WORKFLOW
+    assert "pystamps-$VERSION-*.conda" not in CONDA_WORKFLOW
+
+    assert "rustamps-install/bin/rustamps" in PORTABLE_WORKFLOW
+    assert r"rustamps-install\bin\rustamps.exe" in PORTABLE_WORKFLOW
+
+
 def test_current_docs_define_native_install_and_release() -> None:
+    assert "# Rustamps" in README
+    assert "`rustamps` 0.3.0" in README
+    assert "rustamps --help" in README
     assert "Standalone Rust implementation" in README
     assert "cargo install --path ." in README
     assert "No Python environment or system HDF5 library is required" in README

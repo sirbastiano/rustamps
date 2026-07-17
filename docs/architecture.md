@@ -1,6 +1,6 @@
 # Architecture Snapshot
 
-pySTAMPS has one production boundary: a standalone Rust binary reads and
+Rustamps has one production boundary: a standalone Rust binary reads and
 writes a StaMPS-style dataset directory. That directory, including its MATLAB
 artifacts and stage markers, is the source of truth.
 
@@ -11,13 +11,13 @@ For scientific details and current fail-closed compatibility boundaries, see
 
 | Layer | Rust crate or path | Responsibility |
 | --- | --- | --- |
-| CLI | `crates/pystamps-cli` | Parse commands and print JSON reports |
-| Pipeline | `crates/pystamps-pipeline` | Load configuration, schedule stages, invalidate downstream products, and commit outputs |
-| Algorithms | `crates/pystamps-core` | Native numerical kernels for preparation and Stages 1–8 |
-| Dataset I/O | `crates/pystamps-io` | Discover layouts and read/write MATLAB-compatible artifacts |
-| Verification | `crates/pystamps-verify` | Compare production artifacts under strict or scientific tolerances |
+| CLI | `crates/rustamps-cli` | Parse commands and print JSON reports |
+| Pipeline | `crates/rustamps-pipeline` | Load configuration, schedule stages, invalidate downstream products, and commit outputs |
+| Algorithms | `crates/rustamps-core` | Native numerical kernels for preparation and Stages 1–8 |
+| Dataset I/O | `crates/rustamps-io` | Discover layouts and read/write MATLAB-compatible artifacts |
+| Verification | `crates/rustamps-verify` | Compare production artifacts under strict or scientific tolerances |
 
-The root Cargo package assembles these crates into the `pystamps` binary. It
+The root Cargo package assembles these crates into the `rustamps` binary. It
 has no Python extension boundary and does not spawn an external scientific
 tool. Pure-Rust MAT v5/v7.3 handling keeps system HDF5 outside the runtime
 dependency graph.
@@ -43,7 +43,7 @@ artifacts.
 
 ## Scheduling and publication
 
-`pystamps-pipeline` discovers the dataset once and dispatches every selected
+`rustamps-pipeline` discovers the dataset once and dispatches every selected
 stage to `NativeExecutor`. An explicit positive stage range recomputes the
 range. `start_step: 0` is resume mode and reports `skipped_existing` for a
 complete stage.
@@ -90,7 +90,7 @@ solve converged.
 Inspect the compiled runtime boundary with:
 
 ```bash
-pystamps describe-backends
+rustamps describe-backends
 ```
 
 ## Stage 6 checkpoint flow
@@ -114,8 +114,8 @@ The verifier compares artifact presence, exact structural keys, dimensions,
 types, and values:
 
 ```bash
-pystamps verify --run RUN_DIR --golden GOLDEN_DIR
-pystamps verify --run RUN_DIR --golden GOLDEN_DIR --profile scientific
+rustamps verify --run RUN_DIR --golden GOLDEN_DIR
+rustamps verify --run RUN_DIR --golden GOLDEN_DIR --profile scientific
 ```
 
 Strict mode is the default. Scientific mode applies configured tolerances,

@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Native quick start - pySTAMPS</title>
+  <title>Native quick start - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -27,7 +27,7 @@
     <section class="card">
       <h2>1. Install</h2>
       <pre><code class="language-bash">cargo install --path . --locked
-pystamps describe-backends</code></pre>
+rustamps describe-backends</code></pre>
     </section>
 
     <section class="card">
@@ -35,20 +35,20 @@ pystamps describe-backends</code></pre>
       <pre><code class="language-bash">export SOURCE_DATASET=/path/to/source_dataset
 export RUN_DATASET=/path/to/run_dataset
 cp -a "$SOURCE_DATASET" "$RUN_DATASET"
-pystamps status --dataset "$RUN_DATASET"</code></pre>
-      <p>For an unprepared compatible SNAP export, first run <span class="code-inline">pystamps prep snap --dataset "$RUN_DATASET"</span>.</p>
+rustamps status --dataset "$RUN_DATASET"</code></pre>
+      <p>For an unprepared compatible SNAP export, first run <span class="code-inline">rustamps prep snap --dataset "$RUN_DATASET"</span>.</p>
     </section>
 
     <section class="card">
       <h2>3. Rehearse and execute</h2>
-      <pre><code class="language-bash">pystamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8 --dry-run
-pystamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8</code></pre>
+      <pre><code class="language-bash">rustamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8 --dry-run
+rustamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8</code></pre>
       <p>An interrupted Stage 6 resumes from matching atomic checkpoints. To resume the whole pipeline from existing completion artifacts, use <span class="code-inline">--start-step 0</span>.</p>
     </section>
 
     <section class="card">
       <h2>4. Verify</h2>
-      <pre><code class="language-bash">pystamps verify \
+      <pre><code class="language-bash">rustamps verify \
   --run "$RUN_DATASET" \
   --golden /path/to/reference_dataset</code></pre>
       <p>Strict comparison is the default. Use <span class="code-inline">--through-stage N</span> for a completed prefix or <span class="code-inline">--profile scientific</span> with a reviewed tolerance config.</p>
@@ -56,7 +56,7 @@ pystamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8</code></pre>
 
     <section class="card">
       <h2>Optional faster Stage 6 grid</h2>
-      <pre><code class="language-bash">pystamps --config configs/stage6-fast.yaml run \
+      <pre><code class="language-bash">rustamps --config configs/stage6-fast.yaml run \
   --dataset "$RUN_DATASET" --start-step 6 --end-step 8</code></pre>
       <p>The fast and balanced profiles coarsen the grid but keep the integer-flow solve converged. Validate either profile scientifically against a strict-grid result for the dataset.</p>
     </section>

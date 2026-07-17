@@ -41,7 +41,7 @@
 
     const title = document.createElement('h2');
     title.className = 'page-brand-title';
-    title.textContent = 'pySTAMPS Docs';
+    title.textContent = 'Rustamps Docs';
     marker.appendChild(title);
 
     const anchor = main.querySelector('.breadcrumb') || main.querySelector('.hero');

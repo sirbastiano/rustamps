@@ -1137,72 +1137,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pystamps"
-version = "0.2.0"
-dependencies = [
- "clap",
- "pystamps-core",
- "pystamps-io",
- "pystamps-pipeline",
- "pystamps-verify",
- "rayon",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pystamps-core"
-version = "0.2.0"
-dependencies = [
- "delaunator",
- "faer",
- "num-complex",
- "rayon",
- "rustfft",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "pystamps-io"
-version = "0.2.0"
-dependencies = [
- "hdf5-pure",
- "matrw",
- "num-complex",
- "rayon",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "pystamps-pipeline"
-version = "0.2.0"
-dependencies = [
- "delaunator",
- "num-complex",
- "pystamps-core",
- "pystamps-io",
- "rayon",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "pystamps-verify"
-version = "0.2.0"
-dependencies = [
- "num-complex",
- "pystamps-io",
- "pystamps-pipeline",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "qd"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1340,6 +1274,72 @@ name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+
+[[package]]
+name = "rustamps"
+version = "0.3.0"
+dependencies = [
+ "clap",
+ "rayon",
+ "rustamps-core",
+ "rustamps-io",
+ "rustamps-pipeline",
+ "rustamps-verify",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rustamps-core"
+version = "0.3.0"
+dependencies = [
+ "delaunator",
+ "faer",
+ "num-complex",
+ "rayon",
+ "rustfft",
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rustamps-io"
+version = "0.3.0"
+dependencies = [
+ "hdf5-pure",
+ "matrw",
+ "num-complex",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rustamps-pipeline"
+version = "0.3.0"
+dependencies = [
+ "delaunator",
+ "num-complex",
+ "rayon",
+ "rustamps-core",
+ "rustamps-io",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rustamps-verify"
+version = "0.3.0"
+dependencies = [
+ "num-complex",
+ "rustamps-io",
+ "rustamps-pipeline",
+ "serde",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "rustfft"

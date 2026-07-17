@@ -1,6 +1,6 @@
 # Standalone native runtime
 
-The installed `pystamps` command is a Rust binary. It does not load Python,
+The installed `rustamps` command is a Rust binary. It does not load Python,
 MATLAB, SNAPHU, Triangle, a system HDF5 library, or another process at runtime.
 The Python and PyO3 trees are retained only to reproduce reference results.
 
@@ -11,7 +11,7 @@ Rust 1.89 or newer is required by the locked pure-Rust HDF5 reader.
 ```bash
 cargo build --release --locked
 cargo install --path . --locked
-pystamps describe-backends
+rustamps describe-backends
 ```
 
 The root Cargo package is the production package. Its dependency graph is the
@@ -19,15 +19,15 @@ authoritative runtime dependency list.
 
 ## Conda distribution
 
-The `pystamps` 0.2.0 development-channel Conda package is the same standalone
+The `rustamps` 0.3.0 development-channel Conda package is the same standalone
 Rust CLI, not a Python binding or environment for the retained oracle. It has
 no Python, system HDF5, SNAPHU, or external scientific-program requirement. A
 clean installation and runtime-boundary check is:
 
 ```bash
-conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
-conda run -n pystamps pystamps --version
-conda run -n pystamps pystamps describe-backends
+conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda run -n rustamps rustamps --version
+conda run -n rustamps rustamps describe-backends
 ```
 
 The compiled Conda subdirectories are `linux-64`, `linux-aarch64`, `osx-64`,
@@ -66,9 +66,9 @@ The native pipeline implements SNAP preparation and StaMPS-compatible Stages
 1–8 for the available single-master workflow:
 
 ```bash
-pystamps prep snap --dataset DATASET
-pystamps run --dataset DATASET --start-step 1 --end-step 8
-pystamps verify --run DATASET --golden GOLDEN_DATASET
+rustamps prep snap --dataset DATASET
+rustamps run --dataset DATASET --start-step 1 --end-step 8
+rustamps verify --run DATASET --golden GOLDEN_DATASET
 ```
 
 Stages write through transactions, so the completion artifact is published
@@ -106,7 +106,7 @@ phase can differ slightly from the historical filter while remaining stable.
 - Identifiers stored in MAT artifacts remain one-based where StaMPS expects
   them; Rust kernel indices are zero-based.
 - Complex, sparse, logical, character, NaN/Inf, typed-empty, and wrapped-phase
-  comparisons are handled by `pystamps verify`.
+  comparisons are handled by `rustamps verify`.
 - The Stage 6 master and dropped interferograms remain zero in `phuw2.mat`, as
   in the reference workflow.
 - Stage 7 preserves `K_ps_uw` as `float64` internally and on write rather than
@@ -172,7 +172,7 @@ Before publishing a binary, run:
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo build --release --locked
-cargo tree -p pystamps
+cargo tree -p rustamps
 ```
 
 Then run at least one fresh-data comparison, not only checkpoint reuse. The

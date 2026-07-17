@@ -28,7 +28,7 @@ current fail-closed list.
 
 ## Native runtime boundary
 
-The installed `pystamps` binary and all production stages are Rust. The Cargo
+The installed `rustamps` binary and all production stages are Rust. The Cargo
 normal/build graph has no Python, PyO3, NumPy, SNAPHU, Triangle, CMake,
 `pkg-config`, or system-HDF5 dependency. Runtime Rust sources contain no
 external process execution, and the macOS release binary links only

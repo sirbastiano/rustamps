@@ -1,4 +1,4 @@
-name: Conda package
+name: Rustamps Conda package
 
 on:
   push:
@@ -64,8 +64,8 @@ jobs:
             tagged=true
             source_commit="$(git rev-parse HEAD)"
             source_url="https://github.com/$GITHUB_REPOSITORY/archive/$source_commit.tar.gz"
-            curl --fail --location --retry 3 "$source_url" --output "$RUNNER_TEMP/pystamps-source.tar.gz"
-            source_sha256="$(sha256sum "$RUNNER_TEMP/pystamps-source.tar.gz" | cut -d ' ' -f 1)"
+            curl --fail --location --retry 3 "$source_url" --output "$RUNNER_TEMP/rustamps-source.tar.gz"
+            source_sha256="$(sha256sum "$RUNNER_TEMP/rustamps-source.tar.gz" | cut -d ' ' -f 1)"
           fi
 
           if [[ "$PUBLISH_DEV" == "true" && "$tagged" != "true" ]]; then
@@ -105,8 +105,8 @@ jobs:
       - name: Build and test package
         uses: prefix-dev/rattler-build-action@1ca5f45832f419a46d1326ccc5861d7e14d67c44 # v0.2.39
         env:
-          PYSTAMPS_SOURCE_URL: ${{ needs.prepare.outputs.source_url }}
-          PYSTAMPS_SOURCE_SHA256: ${{ needs.prepare.outputs.source_sha256 }}
+          RUSTAMPS_SOURCE_URL: ${{ needs.prepare.outputs.source_url }}
+          RUSTAMPS_SOURCE_SHA256: ${{ needs.prepare.outputs.source_sha256 }}
         with:
           rattler-build-version: ${{ env.RATTLER_BUILD_VERSION }}
           recipe-path: recipe/recipe.yaml
@@ -198,7 +198,7 @@ jobs:
             [win-64]=x86_64
             [win-arm64]=arm64
           )
-          : > "$RUNNER_TEMP/pystamps-conda-packages.txt"
+          : > "$RUNNER_TEMP/rustamps-conda-packages.txt"
           mapfile -t all_packages < <(find dist-conda -type f -name "*.conda" | sort)
           if [[ "${#all_packages[@]}" -ne "${#expected[@]}" ]]; then
             echo "Expected exactly six Conda artifacts, found ${#all_packages[@]}" >&2
@@ -206,9 +206,9 @@ jobs:
           fi
           for subdir in "${expected[@]}"; do
             package_dir="dist-conda/conda-$subdir"
-            mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name "pystamps-$VERSION-*.conda")
+            mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name "rustamps-$VERSION-*.conda")
             if [[ "${#packages[@]}" -ne 1 ]]; then
-              echo "Expected one pystamps $VERSION artifact for $subdir" >&2
+              echo "Expected one rustamps $VERSION artifact for $subdir" >&2
               exit 1
             fi
             rattler-build package inspect --all --json "${packages[0]}" |
@@ -216,12 +216,12 @@ jobs:
                 --arg version "$VERSION" \
                 --arg subdir "$subdir" \
                 --arg arch "${expected_arch[$subdir]}" \
-                '.index.name == "pystamps" and
+                '.index.name == "rustamps" and
                  .index.version == $version and
                  .index.subdir == $subdir and
                  .index.arch == $arch and
                  .index.build_number == 0'
-            printf '%s\n' "${packages[0]}" >> "$RUNNER_TEMP/pystamps-conda-packages.txt"
+            printf '%s\n' "${packages[0]}" >> "$RUNNER_TEMP/rustamps-conda-packages.txt"
           done
 
       - name: Upload to sirbastiano/label/dev
@@ -234,7 +234,7 @@ jobs:
             echo "ANACONDA_API_KEY is not configured" >&2
             exit 1
           fi
-          mapfile -t packages < "$RUNNER_TEMP/pystamps-conda-packages.txt"
+          mapfile -t packages < "$RUNNER_TEMP/rustamps-conda-packages.txt"
           if [[ "${#packages[@]}" -ne 6 ]]; then
             echo "Validated artifact manifest does not contain six packages" >&2
             exit 1

@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Native usage - pySTAMPS</title>
+  <title>Native usage - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -26,17 +26,17 @@
 
     <section class="card">
       <h2>Inspect inputs and state</h2>
-      <pre><code class="language-bash">pystamps describe-backends
-pystamps describe-inputs --stage all
-pystamps status --dataset DATASET</code></pre>
+      <pre><code class="language-bash">rustamps describe-backends
+rustamps describe-inputs --stage all
+rustamps status --dataset DATASET</code></pre>
       <p>These commands are read-only. <span class="code-inline">describe-backends</span> reports the native runtime boundary.</p>
     </section>
 
     <section class="card">
       <h2>Plan, run, and resume</h2>
-      <pre><code class="language-bash">pystamps run --dataset DATASET --start-step 1 --end-step 8 --dry-run
-pystamps run --dataset DATASET --start-step 1 --end-step 8
-pystamps run --dataset DATASET --start-step 0 --end-step 8</code></pre>
+      <pre><code class="language-bash">rustamps run --dataset DATASET --start-step 1 --end-step 8 --dry-run
+rustamps run --dataset DATASET --start-step 1 --end-step 8
+rustamps run --dataset DATASET --start-step 0 --end-step 8</code></pre>
       <ul>
         <li>A positive start step recomputes the range and invalidates dependent later artifacts.</li>
         <li>Start step <span class="code-inline">0</span> resumes from valid completion artifacts.</li>
@@ -47,26 +47,26 @@ pystamps run --dataset DATASET --start-step 0 --end-step 8</code></pre>
 
     <section class="card">
       <h2>Run a controlled stage range</h2>
-      <pre><code class="language-bash">pystamps run --dataset DATASET --start-step 3 --end-step 5
-pystamps run --dataset DATASET --start-step 6 --end-step 8</code></pre>
+      <pre><code class="language-bash">rustamps run --dataset DATASET --start-step 3 --end-step 5
+rustamps run --dataset DATASET --start-step 6 --end-step 8</code></pre>
       <p>Each stage validates required upstream artifacts. Unsupported compatibility branches fail before publishing substitute results.</p>
     </section>
 
     <section class="card">
       <h2>Apply an explicit native profile</h2>
-      <pre><code class="language-bash">pystamps --config configs/native-kernels.yaml run \
+      <pre><code class="language-bash">rustamps --config configs/native-kernels.yaml run \
   --dataset DATASET --start-step 1 --end-step 8
 
-pystamps --config configs/stage6-fast.yaml run \
+rustamps --config configs/stage6-fast.yaml run \
   --dataset DATASET --start-step 6 --end-step 8</code></pre>
       <p>The fast profile coarsens Stage 6 grid spacing but retains converged flow optimization. Compare it scientifically with a strict-grid run before accepting it.</p>
     </section>
 
     <section class="card">
       <h2>Verify a run</h2>
-      <pre><code class="language-bash">pystamps verify --run RUN --golden GOLDEN
-pystamps verify --run RUN --golden GOLDEN --through-stage 6
-pystamps --config CONFIG verify \
+      <pre><code class="language-bash">rustamps verify --run RUN --golden GOLDEN
+rustamps verify --run RUN --golden GOLDEN --through-stage 6
+rustamps --config CONFIG verify \
   --run RUN --golden GOLDEN --profile scientific</code></pre>
       <p>Strict is the default. Scientific mode still enforces structure and configured hard maximum errors.</p>
     </section>

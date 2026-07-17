@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>pySTAMPS native runtime</title>
+  <title>Rustamps native runtime</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
     <div class="logo">
-      <img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" />
-      <h1>pySTAMPS</h1>
+      <img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" />
+      <h1>Rustamps</h1>
     </div>
     <small>Standalone Rust runtime</small>
     <nav>
@@ -33,7 +33,7 @@
     <div class="breadcrumb">Home / Native runtime</div>
     <h1>StaMPS processing in native Rust</h1>
     <p>
-      The installed <span class="code-inline">pystamps</span> command is a Rust
+      The installed <span class="code-inline">rustamps</span> command is a Rust
       binary. It does not load Python, MATLAB, SNAPHU, Triangle, system HDF5,
       or another executable at runtime.
     </p>
@@ -41,15 +41,15 @@
     <section class="card">
       <h2>Install</h2>
       <pre><code class="language-bash">cargo install --path . --locked
-pystamps --help
-pystamps describe-backends</code></pre>
+rustamps --help
+rustamps describe-backends</code></pre>
     </section>
 
     <section class="card">
       <h2>Run and verify</h2>
-      <pre><code class="language-bash">pystamps prep snap --dataset DATASET
-pystamps run --dataset DATASET --start-step 1 --end-step 8
-pystamps verify --run DATASET --golden GOLDEN_DATASET</code></pre>
+      <pre><code class="language-bash">rustamps prep snap --dataset DATASET
+rustamps run --dataset DATASET --start-step 1 --end-step 8
+rustamps verify --run DATASET --golden GOLDEN_DATASET</code></pre>
       <p>
         Use a writable dataset copy. Stage writes are transactional and long
         Stage 6 solves resume from fingerprinted native checkpoints.

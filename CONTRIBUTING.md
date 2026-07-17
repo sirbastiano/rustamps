@@ -1,9 +1,9 @@
-# Contributing to pySTAMPS
+# Contributing to Rustamps
 
 ## Repository setup
 
 ```bash
-git clone git@github.com:sirbastiano/pystamps.git
+git clone https://github.com/ESA-PhiLab/pystamps.git
 cd pystamps
 cargo build --release --locked
 cargo test --workspace --locked

@@ -3,29 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Native verification - pySTAMPS</title>
+  <title>Native verification - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
 </head>
 <body>
 <div class="site">
-  <aside class="sidebar"><div class="logo"><img class="brand-logo" src="assets/pystamps-logo.svg" alt="pySTAMPS logo" /><h1>pySTAMPS</h1></div><small>Standalone Rust runtime</small></aside>
+  <aside class="sidebar"><div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div><small>Standalone Rust runtime</small></aside>
   <main class="content">
     <div class="breadcrumb">Home / Verification</div>
     <h1>Verify scientific artifacts</h1>
     <section class="card">
       <h2>Strict comparison</h2>
-      <pre><code class="language-bash">pystamps verify --run RUN_COPY --golden GOLDEN_DATASET</code></pre>
+      <pre><code class="language-bash">rustamps verify --run RUN_COPY --golden GOLDEN_DATASET</code></pre>
       <p>Strict mode compares expected artifact presence, keys, dimensions, types, and configured numeric tolerances. It returns nonzero on mismatch.</p>
     </section>
     <section class="card">
       <h2>Completed stage prefix</h2>
-      <pre><code class="language-bash">pystamps verify --run RUN_COPY --golden GOLDEN_DATASET \
+      <pre><code class="language-bash">rustamps verify --run RUN_COPY --golden GOLDEN_DATASET \
   --through-stage 6</code></pre>
       <p>The prefix changes the artifact contract as well as the files inspected.</p>
     </section>
     <section class="card">
       <h2>Scientific profile</h2>
-      <pre><code class="language-bash">pystamps --config CONFIG verify \
+      <pre><code class="language-bash">rustamps --config CONFIG verify \
   --run RUN_COPY --golden GOLDEN_DATASET \
   --profile scientific</code></pre>
       <p>Scientific mode permits only configured bounded numeric outliers with hard maximum-error caps. Exact structural keys remain exact, and wrapping applies only to configured cyclic quantities.</p>

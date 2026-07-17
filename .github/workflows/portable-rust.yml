@@ -1,4 +1,4 @@
-name: Portable Rust installation
+name: Rustamps portable installation
 
 on:
   push:
@@ -83,19 +83,19 @@ jobs:
       - name: Install from checkout
         run: cargo install --path . --locked --target ${{ matrix.target }}
         env:
-          CARGO_INSTALL_ROOT: ${{ runner.temp }}/pystamps-install
+          CARGO_INSTALL_ROOT: ${{ runner.temp }}/rustamps-install
 
       - name: Smoke-test installed binary
         if: runner.os != 'Windows'
         run: |
-          "$RUNNER_TEMP/pystamps-install/bin/pystamps" --version
-          "$RUNNER_TEMP/pystamps-install/bin/pystamps" describe-backends
+          "$RUNNER_TEMP/rustamps-install/bin/rustamps" --version
+          "$RUNNER_TEMP/rustamps-install/bin/rustamps" describe-backends
 
       - name: Smoke-test installed Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $binary = Join-Path $env:RUNNER_TEMP "pystamps-install\bin\pystamps.exe"
+          $binary = Join-Path $env:RUNNER_TEMP "rustamps-install\bin\rustamps.exe"
           & $binary --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $binary describe-backends

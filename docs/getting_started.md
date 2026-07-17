@@ -1,20 +1,20 @@
-# Getting Started With pySTAMPS
+# Getting Started With Rustamps
 
-pySTAMPS is a standalone Rust implementation of the StaMPS-style processing
+Rustamps is a standalone Rust implementation of the StaMPS-style processing
 pipeline. The production command does not load Python or invoke external
 programs at runtime.
 
 ## Install with Conda
 
-The `pystamps` 0.2.0 development-channel Conda package installs only the
+The `rustamps` 0.3.0 development-channel Conda package installs only the
 compiled Rust command. It does not install or load Python, a system HDF5
 library, SNAPHU, or another external scientific executable. Create a clean
 environment with:
 
 ```bash
-conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
-conda run -n pystamps pystamps --version
-conda run -n pystamps pystamps describe-backends
+conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda run -n rustamps rustamps --version
+conda run -n rustamps rustamps describe-backends
 ```
 
 `describe-backends` must report an empty `runtime_external_dependencies` list.
@@ -35,7 +35,7 @@ git clone https://github.com/ESA-PhiLab/pystamps.git
 cd pystamps
 cargo build --release --locked
 cargo install --path . --locked
-pystamps describe-backends
+rustamps describe-backends
 ```
 
 `describe-backends` should report the standalone `native` provider and an
@@ -57,8 +57,8 @@ export SOURCE_DATASET=/path/to/your_dataset
 export RUN_DATASET=/path/to/run_dataset
 cp -a "$SOURCE_DATASET" "$RUN_DATASET"
 
-pystamps status --dataset "$RUN_DATASET"
-pystamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8 --dry-run
+rustamps status --dataset "$RUN_DATASET"
+rustamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8 --dry-run
 ```
 
 On Windows PowerShell, replace the `export` lines with `$env:NAME = 'value'`
@@ -68,10 +68,10 @@ For a compatible SNAP export that has not yet been converted into patch
 inputs, use the native preparation command first:
 
 ```bash
-pystamps prep snap --dataset "$RUN_DATASET"
+rustamps prep snap --dataset "$RUN_DATASET"
 ```
 
-Use `pystamps prep snap --help` for master-date, patch-grid, overlap, and
+Use `rustamps prep snap --help` for master-date, patch-grid, overlap, and
 amplitude-dispersion options.
 
 ## Run the pipeline
@@ -79,7 +79,7 @@ amplitude-dispersion options.
 Run all eight stages with:
 
 ```bash
-pystamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8
+rustamps run --dataset "$RUN_DATASET" --start-step 1 --end-step 8
 ```
 
 An explicit positive stage range recomputes the requested stages and
@@ -87,13 +87,13 @@ invalidates dependent later products. To resume automatically from existing
 completion artifacts, use `--start-step 0`:
 
 ```bash
-pystamps run --dataset "$RUN_DATASET" --start-step 0 --end-step 8
+rustamps run --dataset "$RUN_DATASET" --start-step 0 --end-step 8
 ```
 
 You can also run a controlled range, for example:
 
 ```bash
-pystamps run --dataset "$RUN_DATASET" --start-step 6 --end-step 8
+rustamps run --dataset "$RUN_DATASET" --start-step 6 --end-step 8
 ```
 
 Stage 6 stores fingerprinted, atomic per-interferogram checkpoints below
@@ -119,7 +119,7 @@ runtime:
 Run with the checked-in strict native profile:
 
 ```bash
-pystamps --config configs/native-kernels.yaml run \
+rustamps --config configs/native-kernels.yaml run \
   --dataset "$RUN_DATASET" --start-step 1 --end-step 8
 ```
 
@@ -146,7 +146,7 @@ Strict verification is the default:
 
 ```bash
 export GOLDEN_DATASET=/path/to/reference_dataset
-pystamps verify --run "$RUN_DATASET" --golden "$GOLDEN_DATASET"
+rustamps verify --run "$RUN_DATASET" --golden "$GOLDEN_DATASET"
 ```
 
 Use `--through-stage 1` through `--through-stage 8` to limit comparison to a
@@ -154,7 +154,7 @@ completed prefix. The scientific profile permits only configured bounded
 numeric outliers and still enforces artifact structure and hard error caps:
 
 ```bash
-pystamps --config configs/stage6-fast.yaml verify \
+rustamps --config configs/stage6-fast.yaml verify \
   --run "$RUN_DATASET" --golden "$GOLDEN_DATASET" \
   --profile scientific --final-products-only --through-stage 6
 ```
@@ -168,7 +168,7 @@ with scientific results.
 ## Developer-only Python oracle
 
 The historical Python implementation is an isolated source oracle for tests
-and comparisons. It is not installed as `pystamps`, is not loaded by the Rust
+and comparisons. It is not installed as `rustamps`, is not loaded by the Rust
 binary, and is not part of production deployment.
 
 ```bash

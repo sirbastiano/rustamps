@@ -29,7 +29,7 @@ class Step:
 
 
 NATIVE_BINARY = str(
-    Path("target") / "release" / ("pystamps.exe" if os.name == "nt" else "pystamps")
+    Path("target") / "release" / ("rustamps.exe" if os.name == "nt" else "rustamps")
 )
 CARGO = os.environ.get("CARGO") or shutil.which("cargo")
 if CARGO is None:
@@ -87,7 +87,7 @@ def _run_step(step: Step, *, verbose: bool) -> dict[str, Any]:
     env = os.environ.copy()
     env.update(step.env)
 
-    with TemporaryDirectory(prefix="pystamps-rust-validate-") as tmp:
+    with TemporaryDirectory(prefix="rustamps-rust-validate-") as tmp:
         payload_path = Path(tmp) / "payload.json"
         result_path = Path(tmp) / "result.json"
         payload_path.write_text(
