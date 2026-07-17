@@ -27,8 +27,8 @@
 
     <section class="card">
       <h2>Conda package</h2>
-      <p>The unpublished <span class="code-inline">pystamps</span> 0.2.0 Conda package contains only the native Rust CLI. It does not install Python, a system HDF5 library, SNAPHU, or another external scientific executable. No package has been uploaded yet.</p>
-      <p>After the first validated development-channel release, install and smoke-test it in a clean environment:</p>
+      <p>The <span class="code-inline">pystamps</span> 0.2.0 development-channel Conda package contains only the native Rust CLI. It does not install Python, a system HDF5 library, SNAPHU, or another external scientific executable.</p>
+      <p>Install and smoke-test it in a clean environment:</p>
       <pre><code class="language-bash">conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
 conda run -n pystamps pystamps --version
 conda run -n pystamps pystamps describe-backends</code></pre>
@@ -38,7 +38,7 @@ conda run -n pystamps pystamps describe-backends</code></pre>
 
     <section class="card">
       <h2>Build from a checkout</h2>
-      <pre><code class="language-bash">git clone https://github.com/sirbastiano/pystamps.git
+      <pre><code class="language-bash">git clone https://github.com/ESA-PhiLab/pystamps.git
 cd pystamps
 cargo build --release --locked
 cargo install --path . --locked

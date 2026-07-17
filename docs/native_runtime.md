@@ -19,11 +19,10 @@ authoritative runtime dependency list.
 
 ## Conda distribution
 
-The unpublished `pystamps` 0.2.0 Conda package is the same standalone Rust CLI, not
-a Python binding or environment for the retained oracle. It has no Python,
-system HDF5, SNAPHU, or external scientific-program requirement. No artifact
-has been uploaded yet. After a validated development-channel upload, a clean
-installation and runtime-boundary check is:
+The `pystamps` 0.2.0 development-channel Conda package is the same standalone
+Rust CLI, not a Python binding or environment for the retained oracle. It has
+no Python, system HDF5, SNAPHU, or external scientific-program requirement. A
+clean installation and runtime-boundary check is:
 
 ```bash
 conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0

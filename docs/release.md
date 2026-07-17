@@ -111,8 +111,8 @@ Conda subdirectory match. The Cargo, recipe, source-tag, and installed-command
 versions must agree. Rebuilding 0.2.0 requires incrementing the Conda build
 number; do not overwrite an existing artifact.
 
-No Conda package has been uploaded yet. The first authorized upload publishes
-the exact locally and natively tested artifacts to `sirbastiano/label/dev`.
+Authorized uploads publish the exact locally and natively tested artifacts to
+`sirbastiano/label/dev`.
 Windows ARM64 remains experimental on `dev` until its package passes native
 ARM64 CI. Before adding `ANACONDA_API_KEY`, configure the GitHub `anaconda-dev`
 environment with a required reviewer, prevent self-review, and restrict its

@@ -18,10 +18,9 @@ does not compile or install them.
 
 ### Conda package
 
-The unpublished `pystamps` 0.2.0 Conda package contains the native Rust CLI only;
-it does not install Python, a system HDF5 library, SNAPHU, or another scientific
-executable. No Conda artifact has been uploaded yet. After the first validated
-development-channel release, install and smoke-test it in a clean environment:
+The `pystamps` 0.2.0 development-channel Conda package contains the native Rust
+CLI only; it does not install Python, a system HDF5 library, SNAPHU, or another
+scientific executable. Install and smoke-test it in a clean environment:
 
 ```bash
 conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
@@ -42,7 +41,7 @@ artifacts to the `main` label requires an explicit release decision.
 Install Rust 1.89 or newer, then build and install directly from the repository:
 
 ```bash
-git clone https://github.com/sirbastiano/pystamps.git
+git clone https://github.com/ESA-PhiLab/pystamps.git
 cd pystamps
 cargo install --path . --locked
 pystamps --help

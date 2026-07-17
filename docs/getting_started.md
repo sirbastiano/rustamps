@@ -6,10 +6,10 @@ programs at runtime.
 
 ## Install with Conda
 
-The unpublished `pystamps` 0.2.0 Conda package installs only the compiled Rust
-command. It does not install or load Python, a system HDF5 library, SNAPHU, or
-another external scientific executable. No package has been uploaded yet; once
-the validated development build is available, create a clean environment with:
+The `pystamps` 0.2.0 development-channel Conda package installs only the
+compiled Rust command. It does not install or load Python, a system HDF5
+library, SNAPHU, or another external scientific executable. Create a clean
+environment with:
 
 ```bash
 conda create -n pystamps -c sirbastiano/label/dev -c conda-forge pystamps=0.2.0
@@ -31,7 +31,7 @@ Install Rust 1.89 or newer, clone the repository, and build with the locked
 dependency graph:
 
 ```bash
-git clone https://github.com/sirbastiano/pystamps.git
+git clone https://github.com/ESA-PhiLab/pystamps.git
 cd pystamps
 cargo build --release --locked
 cargo install --path . --locked
