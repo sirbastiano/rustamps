@@ -102,7 +102,7 @@ fn multi_patch_merge_requires_every_ownership_file_before_patch_io() {
     let error = super::run_merged(&temp.0, &crate::RunConfig::default()).unwrap_err();
     let message = error.to_string();
     assert!(message.contains("missing required Stage 5 patch ownership artifact"));
-    assert!(message.contains("PATCH_2/patch_noover.in"));
+    assert!(message.contains(&second.join("patch_noover.in").display().to_string()));
     assert!(!temp.0.join("ps2.mat").exists());
     assert!(!temp.0.join("ifgstd2.mat").exists());
     assert!(!temp.0.join(".pystamps-tmp").exists());
