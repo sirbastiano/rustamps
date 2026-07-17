@@ -3,8 +3,8 @@
 ## Repository setup
 
 ```bash
-git clone https://github.com/ESA-PhiLab/pystamps.git
-cd pystamps
+git clone https://github.com/sirbastiano/rustamps.git
+cd rustamps
 cargo build --release --locked
 cargo test --workspace --locked
 ```

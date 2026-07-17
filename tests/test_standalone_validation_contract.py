@@ -131,7 +131,7 @@ def test_release_surfaces_publish_rustamps_0_3_0() -> None:
     assert "name: rustamps" in RECIPE
     assert "rustamps --version" in RECIPE
     assert "rustamps 0.3.0" in RECIPE
-    assert "https://github.com/ESA-PhiLab/pystamps" in RECIPE
+    assert "https://github.com/sirbastiano/rustamps" in RECIPE
     assert "RUSTAMPS_SOURCE_URL" in RECIPE
     assert "PYSTAMPS_SOURCE_URL" not in RECIPE
 

@@ -31,8 +31,8 @@ Install Rust 1.89 or newer, clone the repository, and build with the locked
 dependency graph:
 
 ```bash
-git clone https://github.com/ESA-PhiLab/pystamps.git
-cd pystamps
+git clone https://github.com/sirbastiano/rustamps.git
+cd rustamps
 cargo build --release --locked
 cargo install --path . --locked
 rustamps describe-backends

@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Native pipeline science guide - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.png" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -75,13 +76,13 @@ rustamps --config configs/stage6-fast.yaml verify \
 
     <section class="card">
       <h2>Compatibility boundary</h2>
-      <p>Small-baseline processing, external unwrapping, non-native kernel providers, reference replay, and unsupported Stage 7/8 alternatives fail closed. See <a href="native_runtime.md">the native runtime contract</a> for the complete current list.</p>
+      <p>Small-baseline processing, external unwrapping, non-native kernel providers, reference replay, and unsupported Stage 7/8 alternatives fail closed. See <a href="https://github.com/sirbastiano/rustamps/blob/HEAD/docs/native_runtime.md">the native runtime contract</a> for the complete current list.</p>
       <p>The historical implementation under <span class="code-inline">oracle/</span> is used only for developer comparisons through explicit <span class="code-inline">make oracle-*</span> targets. It is not a production backend.</p>
     </section>
 
     <section class="card">
       <h2>Detailed reference</h2>
-      <p>Read the maintained <a href="pipeline_science_guide.md">Markdown science guide</a> for the full execution, configuration, and artifact contract.</p>
+      <p>Read the maintained <a href="https://github.com/sirbastiano/rustamps/blob/HEAD/docs/pipeline_science_guide.md">Markdown science guide</a> for the full execution, configuration, and artifact contract.</p>
     </section>
   </main>
 </div>

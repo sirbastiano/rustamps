@@ -1,70 +1,175 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rustamps native runtime</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07101f" />
+  <meta name="description" content="Rustamps: native Rust StaMPS persistent-scatterer processing, from SNAP preparation through scientific verification." />
+  <meta property="og:title" content="Rustamps — native StaMPS processing" />
+  <meta property="og:description" content="A standalone Rust CLI for the persistent-scatterer workflow." />
+  <meta property="og:image" content="https://sirbastiano.github.io/rustamps/assets/rustamps-logo.png" />
+  <title>Rustamps — native StaMPS processing</title>
+  <link rel="icon" href="assets/rustamps-logo.png" type="image/png" />
   <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
     <div class="logo">
-      <img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" />
-      <h1>Rustamps</h1>
+      <a href="index.html" aria-label="Rustamps documentation home">
+        <img class="brand-logo" src="assets/rustamps-logo.png" alt="" />
+        <h1>Rustamps</h1>
+      </a>
     </div>
     <small>Standalone Rust runtime</small>
-    <nav>
+
+    <nav aria-label="Documentation">
       <div class="nav-group">
-        <h2>Native documentation</h2>
+        <h2>Start here</h2>
         <ul class="nav-list">
+          <li><a href="index.html">Overview</a></li>
           <li><a href="installation.html">Installation</a></li>
           <li><a href="quickstart.html">Quick start</a></li>
+        </ul>
+      </div>
+      <div class="nav-group">
+        <h2>Guides</h2>
+        <ul class="nav-list">
+          <li><a href="usage.html">Run the pipeline</a></li>
           <li><a href="configuration.html">Configuration</a></li>
-          <li><a href="usage.html">Usage</a></li>
           <li><a href="pipeline-science-guide.html">Science guide</a></li>
-          <li><a href="native_runtime.md">Native runtime contract</a></li>
-          <li><a href="release.md">Native release process</a></li>
+          <li><a href="verification.html">Verification</a></li>
+        </ul>
+      </div>
+      <div class="nav-group">
+        <h2>Project</h2>
+        <ul class="nav-list">
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="function-reference.html">Command reference</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="contributing.html">Contributing</a></li>
+          <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
         </ul>
       </div>
     </nav>
+
+    <div class="sidebar-footer">
+      <span class="status-dot"></span><strong>v0.3.0</strong><br />
+      Native Rust · Apache-2.0
+    </div>
   </aside>
+
   <main class="content">
-    <div class="breadcrumb">Home / Native runtime</div>
-    <h1>StaMPS processing in native Rust</h1>
-    <p>
-      The installed <span class="code-inline">rustamps</span> command is a Rust
-      binary. It does not load Python, MATLAB, SNAPHU, Triangle, system HDF5,
-      or another executable at runtime.
-    </p>
+    <section class="hero">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <span class="eyebrow">Persistent-scatterer processing</span>
+          <h1>StaMPS science. <em>Rust speed.</em> One binary.</h1>
+          <p>
+            Prepare SNAP exports, run Stages 1–8, resume expensive work, and
+            verify every artifact without a Python, MATLAB, SNAPHU, Triangle,
+            or system-HDF5 runtime.
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="quickstart.html">Start processing →</a>
+            <a class="button secondary" href="https://anaconda.org/sirbastiano/rustamps">Download 0.3.0</a>
+          </div>
+        </div>
+        <div class="hero-mark">
+          <img src="assets/rustamps-logo.png" alt="Radar arcs and topographic contours forming the Rustamps mark" />
+        </div>
+      </div>
+    </section>
 
-    <section class="card">
-      <h2>Install</h2>
-      <pre><code class="language-bash">cargo install --path . --locked
-rustamps --help
-rustamps describe-backends</code></pre>
+    <div class="metric-grid" aria-label="Project highlights">
+      <div class="metric"><strong>1 binary</strong><span>No scientific subprocesses</span></div>
+      <div class="metric"><strong>8 stages</strong><span>Supported PS workflow end to end</span></div>
+      <div class="metric"><strong>6 targets</strong><span>Linux, macOS, and Windows builds</span></div>
+    </div>
+
+    <section>
+      <span class="eyebrow">The shortest path</span>
+      <h2>From exported rasters to verified products</h2>
+      <ol class="pipeline">
+        <li><strong>Prepare</strong><br />Discover SNAP exports and build a compatible dataset.</li>
+        <li><strong>Inspect</strong><br />Check status and preview the exact stage writes.</li>
+        <li><strong>Process</strong><br />Run a contiguous range with transactional publication.</li>
+        <li><strong>Verify</strong><br />Compare structure and numerical output against a golden tree.</li>
+      </ol>
     </section>
 
     <section class="card">
-      <h2>Run and verify</h2>
-      <pre><code class="language-bash">rustamps prep snap --dataset DATASET
-rustamps run --dataset DATASET --start-step 1 --end-step 8
-rustamps verify --run DATASET --golden GOLDEN_DATASET</code></pre>
+      <span class="eyebrow">Quick start</span>
+      <h2>Install, inspect, run</h2>
+      <pre><code>conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda run -n rustamps rustamps status --dataset /data/run
+conda run -n rustamps rustamps run --dataset /data/run --start-step 1 --end-step 8
+conda run -n rustamps rustamps verify --run /data/run --golden /data/golden</code></pre>
       <p>
-        Use a writable dataset copy. Stage writes are transactional and long
-        Stage 6 solves resume from fingerprinted native checkpoints.
+        Prefer source builds? Install Rust 1.89+, clone the repository, and run
+        <span class="code-inline">cargo install --path . --locked</span>.
       </p>
     </section>
 
-    <section class="card">
-      <h2>Historical oracle material</h2>
-      <p>
-        The retained historical source implementation is developer-only oracle
-        material. Explicit <span class="code-inline">make oracle-*</span>
-        targets reproduce references; the production binary never imports or
-        executes that source tree.
-      </p>
+    <section>
+      <span class="eyebrow">Built for long scientific runs</span>
+      <h2>Fast where it should be. Conservative where it matters.</h2>
+      <div class="feature-grid">
+        <article class="feature">
+          <h3>Native boundary</h3>
+          <p>Numerical kernels, MAT I/O, orchestration, and verification stay inside the Rust process.</p>
+        </article>
+        <article class="feature">
+          <h3>Atomic publication</h3>
+          <p>Completion markers appear only after an output bundle succeeds; reruns invalidate downstream state.</p>
+        </article>
+        <article class="feature">
+          <h3>Stage 6 resume</h3>
+          <p>Per-interferogram checkpoints are fingerprinted and checksummed before reuse.</p>
+        </article>
+        <article class="feature">
+          <h3>Fail-closed modes</h3>
+          <p>Unsupported scientific branches stop before writes instead of silently changing the method.</p>
+        </article>
+        <article class="feature">
+          <h3>Portable artifacts</h3>
+          <p>Conda packages cover x86_64 and ARM64 across the three desktop operating-system families.</p>
+        </article>
+        <article class="feature">
+          <h3>Golden-tree verifier</h3>
+          <p>Compare real, complex, wrapped-phase, sparse, character, NaN, and Inf data with reviewed tolerances.</p>
+        </article>
+      </div>
+      <div class="callout">
+        <strong>Historical oracle material:</strong> retained Python sources
+        reproduce references for audits but are never part of the production runtime.
+      </div>
     </section>
+
+    <section>
+      <span class="eyebrow">Explore</span>
+      <h2>Pick a route through the docs</h2>
+      <div class="link-card-grid">
+        <a class="link-card" href="installation.html"><h3>Install Rustamps →</h3><p>Conda, source builds, platforms, and runtime boundaries.</p></a>
+        <a class="link-card" href="pipeline-science-guide.html"><h3>Understand the science →</h3><p>Stages, products, checkpoints, supported modes, and tradeoffs.</p></a>
+        <a class="link-card" href="configuration.html"><h3>Tune a run →</h3><p>Worker limits, strict defaults, and explicit Stage 6 profiles.</p></a>
+        <a class="link-card" href="verification.html"><h3>Validate output →</h3><p>Strict comparison, stage-scoped checks, and tolerance profiles.</p></a>
+        <a class="link-card" href="architecture.html"><h3>Inspect architecture →</h3><p>Crate boundaries, state transitions, and publication safety.</p></a>
+        <a class="link-card" href="function-reference.html"><h3>Look up commands →</h3><p>The supported standalone CLI surface at a glance.</p></a>
+      </div>
+    </section>
+
+    <div class="download-strip">
+      <strong>Ready to run?</strong>
+      Download the native package from
+      <a href="https://anaconda.org/sirbastiano/rustamps">Anaconda.org</a>
+      or <a href="https://github.com/sirbastiano/rustamps">build from source</a>.
+    </div>
+
+    <footer class="site-footer">
+      Rustamps documentation · Apache-2.0 · <span data-year></span>
+    </footer>
   </main>
 </div>
 </body>

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07101f" />
+  <meta name="description" content="How to contribute focused, verifiable changes to Rustamps." />
+  <title>Contributing — Rustamps</title>
+  <link rel="icon" href="assets/rustamps-logo.png" type="image/png" />
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
+</head>
+<body>
+<div class="site">
+  <aside class="sidebar">
+    <div class="logo">
+      <a href="index.html"><img class="brand-logo" src="assets/rustamps-logo.png" alt="" /><h1>Rustamps</h1></a>
+    </div>
+    <small>Native InSAR runtime</small>
+    <nav aria-label="Documentation">
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <div class="breadcrumb">Project / Contributing</div>
+    <span class="eyebrow">Make the science safer</span>
+    <h1>Contribute to Rustamps</h1>
+    <p>
+      Keep changes focused, preserve the native production boundary, and pair
+      scientific behavior changes with reproducible evidence.
+    </p>
+
+    <section class="card">
+      <h2>Set up a checkout</h2>
+      <pre><code>git clone https://github.com/sirbastiano/rustamps.git
+cd rustamps
+cargo build --release --locked
+cargo test --workspace --locked</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>Before opening a pull request</h2>
+      <pre><code>cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo build --release --locked
+cargo tree -p rustamps</code></pre>
+      <p>
+        Include the exact commands and fixtures used to verify stage math.
+        Keep the source or golden dataset intact and run on a writable copy.
+      </p>
+    </section>
+
+    <div class="feature-grid">
+      <article class="feature">
+        <h3>Preserve contracts</h3>
+        <p>Respect MATLAB-style indexing, column-major I/O boundaries, checkpoint fingerprints, and fail-closed mode checks.</p>
+      </article>
+      <article class="feature">
+        <h3>Stay native</h3>
+        <p>The production dependency graph must not gain a Python, MATLAB, SNAPHU, Triangle, or system-HDF5 runtime.</p>
+      </article>
+      <article class="feature">
+        <h3>Show evidence</h3>
+        <p>Use deterministic fixtures and the scientific verifier when changing kernels, filters, solvers, or tolerances.</p>
+      </article>
+    </div>
+
+    <div class="callout">
+      The retained Python tree and <span class="code-inline">oracle/pyproject.toml</span>
+      are reference tooling only. Use explicit <span class="code-inline">make oracle-*</span>
+      targets when a change needs oracle comparison.
+    </div>
+
+    <p>
+      Read the full repository guidance in
+      <a href="https://github.com/sirbastiano/rustamps/blob/HEAD/CONTRIBUTING.md">CONTRIBUTING.md</a>
+      and start a discussion in
+      <a href="https://github.com/sirbastiano/rustamps/issues">GitHub Issues</a>.
+    </p>
+  </main>
+</div>
+</body>
+</html>

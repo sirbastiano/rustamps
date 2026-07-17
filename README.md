@@ -1,239 +1,211 @@
 <div align="center">
-
-<img src="docs/assets/rustamps-logo.svg" alt="Rustamps" style="width: 200px; height: auto; max-width: 100%;" />
+  <img src="docs/assets/rustamps-logo.png" alt="Rustamps radar and terrain logo" width="220" />
 
 # Rustamps
 
-Standalone Rust implementation of the StaMPS persistent-scatterer workflow.
+  <p><strong>Standalone Rust implementation of StaMPS persistent-scatterer processing.</strong></p>
+  <p>SNAP preparation · Stages 1–8 · MAT I/O · resumable processing · scientific verification</p>
 
+  <p>
+    <a href="https://github.com/sirbastiano/rustamps/actions/workflows/portable-rust.yml"><img src="https://github.com/sirbastiano/rustamps/actions/workflows/portable-rust.yml/badge.svg" alt="Portable Rust CI" /></a>
+    <a href="https://github.com/sirbastiano/rustamps/actions/workflows/conda-package.yml"><img src="https://github.com/sirbastiano/rustamps/actions/workflows/conda-package.yml/badge.svg" alt="Conda package CI" /></a>
+    <a href="https://anaconda.org/sirbastiano/rustamps"><img src="https://anaconda.org/sirbastiano/rustamps/badges/version.svg" alt="Anaconda version" /></a>
+    <a href="https://anaconda.org/sirbastiano/rustamps"><img src="https://anaconda.org/sirbastiano/rustamps/badges/downloads.svg" alt="Anaconda downloads" /></a>
+    <a href="https://anaconda.org/sirbastiano/rustamps"><img src="https://anaconda.org/sirbastiano/rustamps/badges/platforms.svg" alt="Supported Conda platforms" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/sirbastiano/rustamps?color=4de2d0" alt="Apache-2.0 license" /></a>
+    <img src="https://img.shields.io/badge/Rust-1.89%2B-f26b38?logo=rust&logoColor=white" alt="Rust 1.89 or newer" />
+  </p>
+
+  <p>
+    <a href="https://sirbastiano.github.io/rustamps/"><strong>Documentation</strong></a>
+    ·
+    <a href="https://anaconda.org/sirbastiano/rustamps"><strong>Download</strong></a>
+    ·
+    <a href="https://github.com/sirbastiano/rustamps/issues"><strong>Issues</strong></a>
+  </p>
 </div>
 
-The production runtime covers SNAP preparation, StaMPS-compatible Stages 1–8,
-MAT-file I/O, dataset status, and numerical verification. It does not invoke
-Python, MATLAB, SNAPHU, Triangle, or other external executables. The historical
-Python and PyO3 sources remain in the repository only as an audit oracle; Cargo
-does not compile or install them.
+---
 
-## Install
+Rustamps is a standalone Rust implementation of the production StaMPS
+persistent-scatterer workflow. It runs without loading Python, MATLAB, SNAPHU,
+Triangle, a system HDF5 library, or another scientific executable. The retained
+Python and PyO3 sources are audit oracles; Cargo does not compile or install
+them.
+
+## Why Rustamps?
+
+| | Capability |
+|---|---|
+| **Native** | One standalone Rust CLI with no language-runtime handoff |
+| **Complete** | SNAP preparation and the supported single-master Stages 1–8 |
+| **Safe** | Transactional stage publication and explicit downstream invalidation |
+| **Resumable** | Fingerprinted, checksummed Stage 6 checkpoints |
+| **Verifiable** | Strict and tolerance-aware comparison against golden datasets |
+| **Portable** | 64-bit Linux, macOS, and Windows on x86_64 and ARM64 |
+
+![Rustamps processing flow](docs/assets/rustamps-workflow.svg)
+
+## Download
 
 ### Conda package
 
-The `rustamps` 0.3.0 development-channel Conda package contains the native Rust
-CLI only; it does not install Python, a system HDF5 library, SNAPHU, or another
-scientific executable. Install and smoke-test it in a clean environment:
+The `rustamps` 0.3.0 development-channel package contains the native CLI:
 
 ```bash
-conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
+conda create -n rustamps \
+  -c sirbastiano/label/dev \
+  -c conda-forge \
+  rustamps=0.3.0
+
 conda run -n rustamps rustamps --version
 conda run -n rustamps rustamps describe-backends
 ```
 
-The compiled package targets `linux-64`, `linux-aarch64`, `osx-64`,
-`osx-arm64`, `win-64`, and `win-arm64`. Conda's Linux packages require glibc
-2.17 or newer, and the macOS packages require macOS 11 or newer. The
-source-install matrix remains the installation route for Linux musl. This is
-not a `noarch` package. Windows ARM64 remains experimental and on the `dev`
-label until its artifact passes native ARM64 CI. Promotion of the exact tested
-artifacts to the `main` label requires an explicit release decision.
+Browse every available package and platform on
+[Anaconda.org](https://anaconda.org/sirbastiano/rustamps). Tagged source and
+future release assets live on
+[GitHub Releases](https://github.com/sirbastiano/rustamps/releases).
+
+The Conda builds target `linux-64`, `linux-aarch64`, `osx-64`, `osx-arm64`,
+`win-64`, and `win-arm64`. Windows ARM64 remains experimental on the `dev`
+label. Linux packages require glibc 2.17 or newer; macOS packages require
+macOS 11 or newer.
 
 ### Build from source
 
-Install Rust 1.89 or newer, then build and install directly from the repository:
+Install Rust 1.89 or newer:
 
 ```bash
-git clone https://github.com/ESA-PhiLab/pystamps.git
-cd pystamps
+git clone https://github.com/sirbastiano/rustamps.git
+cd rustamps
 cargo install --path . --locked
 rustamps --help
 ```
 
-For a checkout-local release build:
+No Python environment or system HDF5 library is required.
+
+Linux musl users should build from source. Other 32-bit, big-endian, BSD,
+mobile, and WebAssembly targets are not currently supported.
+
+## Five-minute pipeline
+
+Always process a writable copy when comparing with a reference dataset.
 
 ```bash
-cargo build --release --locked
-cargo run --release --locked -- --help
-```
-
-No Python environment or system HDF5 library is required. The Rust dependency
-graph contains the numerical, FFT, MAT v5/v7.3, and parallel-processing crates
-used by the binary.
-
-Source installation is gated on 64-bit little-endian Linux (GNU and musl),
-macOS, and Windows, on both x86_64 and ARM64. The native matrix in
-[portable-rust.yml](.github/workflows/portable-rust.yml) builds, tests, installs,
-and smoke-tests each target with the minimum supported Rust release. Other
-architectures, BSD, mobile, and WebAssembly are not currently supported.
-
-## Prepare SNAP input
-
-Run preparation on a writeable dataset directory containing the SNAP-exported
-rasters and metadata:
-
-```bash
+# 1. Prepare a compatible SNAP export
 rustamps prep snap \
-  --dataset /path/to/dataset \
+  --dataset /data/run \
   --amp-dispersion 0.4 \
   --range-patches 1 \
   --azimuth-patches 1
+
+# 2. Inspect and rehearse the writes
+rustamps status --dataset /data/run
+rustamps run --dataset /data/run --start-step 1 --end-step 8 --dry-run
+
+# 3. Execute the native pipeline
+rustamps run --dataset /data/run --start-step 1 --end-step 8
+
+# 4. Compare every production artifact
+rustamps verify --run /data/run --golden /data/golden
 ```
 
-Use `--master-date YYYYMMDD` when the master cannot be inferred and `--force`
-to replace an existing prepared layout.
+Use `--master-date YYYYMMDD` during preparation when the master cannot be
+inferred. Run any contiguous stage range by changing `--start-step` and
+`--end-step`; use `--start-step 0` to resume from existing completion markers.
 
-## Run the pipeline
+## Scientific contract
 
-Always work on a copy when comparing with a reference result:
+Rustamps deliberately fails closed instead of substituting a different
+scientific method. The validated production path is the single-master workflow
+(`small_baseline_flag='n'`). Unsupported small-baseline branches, external
+unwrapping, non-native kernels, and nonstandard Stage 6 modes are rejected
+before output is written.
+
+The native Stage 6 solver is self-contained and follows the integer-flow model.
+Large stacks can take time, but per-interferogram work resumes from matching
+atomic checkpoints. The final `phuw2.mat` is published only after every solve
+succeeds.
+
+For faster exploratory runs, use one of the explicit coarser-grid profiles:
 
 ```bash
-cp -a /path/to/source_dataset /path/to/run_dataset
-rustamps status --dataset /path/to/run_dataset
-rustamps run --dataset /path/to/run_dataset --start-step 1 --end-step 8
+rustamps --config configs/stage6-balanced.yaml run \
+  --dataset /data/run --start-step 6 --end-step 8
 ```
 
-The example uses POSIX `cp`; in PowerShell, use
-`Copy-Item -Recurse SOURCE_DATASET RUN_DATASET`.
+Validate a speed profile against a strict-grid result before adopting it for a
+dataset. Floating-point and solver-path differences belong in the verifier,
+not in file-hash comparisons.
 
-Run any contiguous stage range by changing `--start-step` and `--end-step`.
-Preview the planned writes with `--dry-run`:
+## Command map
+
+```text
+rustamps prep snap         Prepare native SNAP exports
+rustamps run               Execute Stages 1–8
+rustamps status            Inspect available artifacts
+rustamps verify            Compare a run with a golden dataset
+rustamps describe-inputs   Show per-stage data scope
+rustamps describe-backends Report the compiled runtime boundary
+rustamps list-legacy       Inventory an external StaMPS script tree
+```
+
+`list-legacy` is read-only inventory support. It never executes the scripts it
+finds.
+
+## Documentation
+
+The static documentation is ready to serve directly from GitHub Pages:
+
+- [Start here](https://sirbastiano.github.io/rustamps/)
+- [Installation](https://sirbastiano.github.io/rustamps/installation.html)
+- [Quick start](https://sirbastiano.github.io/rustamps/quickstart.html)
+- [Configuration](https://sirbastiano.github.io/rustamps/configuration.html)
+- [Pipeline science guide](https://sirbastiano.github.io/rustamps/pipeline-science-guide.html)
+- [Architecture](https://sirbastiano.github.io/rustamps/architecture.html)
+- [Verification](https://sirbastiano.github.io/rustamps/verification.html)
+
+After the first push, enable **Settings → Pages → Deploy from a branch**, select
+the default branch, and choose the `/docs` folder. No Jekyll build is required.
+
+For local preview:
 
 ```bash
-rustamps run \
-  --dataset /path/to/run_dataset \
-  --start-step 3 \
-  --end-step 5 \
-  --dry-run
+python3 -m http.server 8000 --directory docs
 ```
 
-The default configuration is native-only. An explicit YAML file can tune worker
-counts and scientific tolerances:
+Then open <http://localhost:8000/>.
 
-```bash
-rustamps --config configs/native-kernels.yaml run \
-  --dataset /path/to/run_dataset \
-  --start-step 1 \
-  --end-step 8
-```
-
-`--cpu-workers 0` uses the available Rayon threads. Restrict it when memory or
-shared-machine load matters. MAT reads are intentionally conservative and do
-not expose a separate I/O-worker pool.
-
-`runtime.stage6_ifg_workers` controls independent Stage 6 solves: `0` selects
-an adaptive, cell-budgeted schedule, while `1`, `2`, or `4` sets an upper
-bound. Scheduling does not alter scientific checkpoint fingerprints.
-
-## Verify scientific output
-
-Compare a run tree with a retained golden tree:
-
-```bash
-rustamps verify \
-  --run /path/to/run_dataset \
-  --golden /path/to/golden_dataset
-```
-
-Verification handles real and complex arrays, wrapped phase, NaN/Inf, sparse
-arrays, and character data. It reports every failed artifact and exits nonzero
-when tolerances are exceeded.
-
-The default compares every production artifact present in the golden tree. For
-a stage-scoped run, use `--through-stage 6` (or another stage in `1..8`) to
-exclude later-stage golden products without silently intersecting the trees.
-Add `--final-products-only` explicitly when comparing a coarser grid: strict
-verification still includes grid/cache intermediates by default.
-
-Explicit reruns invalidate later-stage products before processing. Stage 2 and
-Stage 6 caches are fingerprinted from their complete scientific inputs, so a
-same-size dataset or an unchanged baseline span cannot reuse stale results.
-
-The native Stage 6 solver is self-contained. It follows the same integer-flow
-scientific model without delegating to SNAPHU; small floating-point or solver
-path differences should be evaluated through the verifier rather than by file
-hash alone.
-
-High-quality Stage 6 flow optimization remains expensive on very large stacks.
-Its preprocessing and per-interferogram solve checkpoints are reusable,
-fingerprinted, checksummed, and atomically written. The final `phuw2.mat` is
-still published transactionally only after every interferogram finishes.
-Each run also writes a machine-readable phase and per-IFG timing report below
-`.pystamps-stage6/`.
-That directory name is retained as an on-disk compatibility contract for
-existing processed datasets.
-`configs/stage6-balanced.yaml` and `configs/stage6-fast.yaml` provide explicit
-coarser-grid profiles for users who prefer a large speed gain. Both retain a
-converged flow solve, and their results should be verified against the strict
-default before adoption for a dataset.
-
-The measured `stage6-experimental-15x.yaml` and
-`stage6-experimental-20x.yaml` profiles are more aggressive and carry
-Stage-6-only bounds. Use `--through-stage 6` when checking those bounds; later
-stages remain strict and must be assessed separately. Pass
-`--final-products-only` when the golden tree contains grid intermediates.
-
-The validated production path is the available single-master workflow
-(`small_baseline_flag='n'`). Small-baseline Stage 2–7 branches and nonstandard
-Stage 6 modes such as patch-phase, hold-good, tropo subtraction, disabled
-look-angle estimation, or custom spatial costs are rejected before output is
-written; the application never substitutes a scientifically different mode.
-The optional Goldstein prefilter uses the faster conservative CLAP spectrum,
-which deliberately preserves weak spectral bins and can produce small wrapped
-phase differences from the historical filter.
-
-## Development checks
+## Development
 
 ```bash
 cargo fmt --all -- --check
-cargo test --workspace
-cargo build --release
+cargo test --workspace --locked
+cargo build --release --locked
 cargo tree -p rustamps
 ```
 
-The production dependency audit should show no `pyo3`, `numpy`, Python runtime,
-SNAPHU, or Triangle dependency. The root package deliberately sets
-`autolib = false` so the legacy `src/lib.rs` PyO3 oracle cannot be discovered by
+The production dependency audit should show no `pyo3`, `numpy`, Python
+runtime, SNAPHU, or Triangle dependency. The root package sets
+`autolib = false` so the legacy `src/lib.rs` oracle cannot be discovered by
 Cargo accidentally.
 
-## Runtime commands
+The reference-only `oracle/pyproject.toml` sets `tool.uv.package = false`; it
+does not define an installable Python package.
 
 ```text
-rustamps prep snap         prepare native SNAP exports
-rustamps run               execute Stages 1–8
-rustamps status            inspect available artifacts
-rustamps verify            compare a run with a golden dataset
-rustamps describe-inputs   describe per-stage data scope
-rustamps describe-backends report the compiled runtime backend
-rustamps list-legacy       inventory an external StaMPS script tree
+crates/rustamps-core      Numerical kernels and stage models
+crates/rustamps-io        Pure-Rust MAT and SNAP dataset I/O
+crates/rustamps-pipeline  Transactional orchestration
+crates/rustamps-verify    Scientific comparison
+crates/rustamps-cli       Installed rustamps command
+oracle/, pystamps/, src/  Retained historical reference material
 ```
 
-`list-legacy` is read-only inventory support for audits; it never executes the
-listed scripts.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and
+keep changes scoped, reproducible, and scientifically verifiable.
 
-## Repository layout
+## License
 
-- `crates/rustamps-core`: numerical kernels and scientific stage models
-- `crates/rustamps-io`: pure-Rust MAT and SNAP dataset I/O
-- `crates/rustamps-pipeline`: transactional stage orchestration
-- `crates/rustamps-verify`: tolerant scientific comparison
-- `crates/rustamps-cli`: source for the installed `rustamps` binary
-- `pystamps/` and `src/`: retained legacy/reference implementations
-
-`oracle/pyproject.toml` only locks dependencies for that source-only oracle and
-is marked `tool.uv.package = false`; there is no root Python project. There is
-no Python build backend, console entry point, wheel, or sdist. Explicit `make
-oracle-*` targets run the reference checks through `PYTHONPATH` without
-installing it.
-
-## Notes
-
-- Treat the run directory as mutable and keep the source/golden dataset intact.
-- Prefer release builds for realistic Stage 2, Stage 4, and Stage 6 performance.
-- Use deterministic retained fixtures when changing solver or filtering logic.
-- Runtime output contracts follow StaMPS MAT conventions, including MATLAB-style
-  one-based identifiers and column-major array semantics at I/O boundaries.
-
-The standalone contracts and supported modes are documented in
-[`docs/native_runtime.md`](docs/native_runtime.md); the reference audit and
-full-data measurements are recorded in
-[`docs/scientific_audit.md`](docs/scientific_audit.md). Retained Python API
-pages are explicitly bannered as historical-oracle references, not production
-install or runtime instructions.
+Licensed under [Apache-2.0](LICENSE).

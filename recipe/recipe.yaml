@@ -63,7 +63,7 @@ tests:
       strict: true
 
 about:
-  homepage: https://github.com/ESA-PhiLab/pystamps
+  homepage: https://github.com/sirbastiano/rustamps
   summary: Standalone Rust implementation of the StaMPS persistent-scatterer workflow
   description: |
     Rustamps provides the complete StaMPS persistent-scatterer processing
@@ -73,7 +73,7 @@ about:
   license_file:
     - LICENSE
     - THIRDPARTY.yml
-  repository: https://github.com/ESA-PhiLab/pystamps
+  repository: https://github.com/sirbastiano/rustamps
 
 extra:
   recipe-maintainers:

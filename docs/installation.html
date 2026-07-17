@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Native installation - Rustamps</title>
   <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
 </head>
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.svg" alt="Rustamps logo" /><h1>Rustamps</h1></div>
+    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.png" alt="Rustamps logo" /><h1>Rustamps</h1></div>
     <small>Standalone Rust runtime</small>
     <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
       <li><a href="index.html">Introduction</a></li>
@@ -38,8 +39,8 @@ conda run -n rustamps rustamps describe-backends</code></pre>
 
     <section class="card">
       <h2>Build from a checkout</h2>
-      <pre><code class="language-bash">git clone https://github.com/ESA-PhiLab/pystamps.git
-cd pystamps
+      <pre><code class="language-bash">git clone https://github.com/sirbastiano/rustamps.git
+cd rustamps
 cargo build --release --locked
 cargo install --path . --locked
 rustamps --help
@@ -65,7 +66,7 @@ rustamps describe-backends</code></pre>
 cargo test --workspace --locked
 cargo build --release --locked
 cargo tree -p rustamps</code></pre>
-      <p>See <a href="release.md">the native release process</a> for the complete gate.</p>
+      <p>See <a href="https://github.com/sirbastiano/rustamps/blob/HEAD/docs/release.md">the native release process</a> for the complete gate.</p>
     </section>
 
     <section class="card">
