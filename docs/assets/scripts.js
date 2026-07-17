@@ -63,13 +63,13 @@
   }
 
   const current = location.pathname.replace(/\/$/, '/index.html');
-  document.querySelectorAll('.nav-list a').forEach((link) => {
+  const currentLinks = Array.from(document.querySelectorAll('.nav-list a')).filter((link) => {
     const path = new URL(link.href, location.href).pathname.replace(/\/$/, '/index.html');
-    if (path === current) {
-      link.classList.add('active');
-      link.setAttribute('aria-current', 'page');
-    }
+    return path === current;
   });
+  const currentLink = currentLinks[currentLinks.length - 1];
+  currentLink?.classList.add('active');
+  currentLink?.setAttribute('aria-current', 'page');
 
   document.querySelectorAll('pre > code').forEach((code) => {
     const pre = code.parentElement;

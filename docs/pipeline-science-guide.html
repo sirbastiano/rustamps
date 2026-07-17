@@ -10,79 +10,202 @@
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.png" alt="Rustamps logo" /><h1>Rustamps</h1></div>
+    <div class="logo">
+      <a href="index.html" aria-label="Rustamps documentation home">
+        <img class="brand-logo" src="assets/rustamps-logo.png" alt="" />
+        <h1>Rustamps</h1>
+      </a>
+    </div>
     <small>Standalone Rust runtime</small>
-    <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
-      <li><a href="index.html">Introduction</a></li>
-      <li><a href="installation.html">Installation</a></li>
-      <li><a href="quickstart.html">Quick start</a></li>
-      <li><a href="configuration.html">Configuration</a></li>
-      <li><a href="usage.html">Usage</a></li>
-      <li><a href="pipeline-science-guide.html">Science guide</a></li>
-    </ul></div></nav>
+    <nav aria-label="Documentation">
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+        <li><a href="inputs.html">Inputs</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Guides</h2><ul class="nav-list">
+        <li><a href="usage.html">Run the pipeline</a></li>
+        <li><a href="configuration.html">Configuration</a></li>
+        <li><a href="pipeline-science-guide.html">Science guide</a></li>
+        <li><a href="verification.html">Verification</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Reference</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="function-reference.html">Command reference</a></li>
+        <li><a href="api/pystamps.html">Historical API</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><strong>v0.3.0</strong><br />Native Rust · Apache-2.0</div>
   </aside>
   <main class="content">
     <div class="breadcrumb">Home / Pipeline science guide</div>
-    <h1>StaMPS-style processing in native Rust</h1>
-    <p>The production binary implements the available single-master workflow in process. It preserves the established dataset and MAT-artifact contracts without loading a Python runtime or invoking external scientific programs.</p>
+    <h1>What every pipeline step does</h1>
+    <p>Rustamps implements the supported single-master persistent-scatterer workflow as eight native stages. Stages 1–4 work independently inside each patch, Stage 5 finishes each patch and joins them, and Stages 6–8 work on the merged dataset.</p>
 
     <section class="card">
-      <h2>Stage map</h2>
-      <table><thead><tr><th>Stage</th><th>Purpose</th><th>Completion artifact</th></tr></thead><tbody>
-        <tr><td>1</td><td>Load candidate phase, geometry, baselines, and metadata</td><td><span class="code-inline">PATCH_*/ps1.mat</span></td></tr>
-        <tr><td>2</td><td>Estimate coherence and topographic-error terms</td><td><span class="code-inline">PATCH_*/pm1.mat</span></td></tr>
-        <tr><td>3</td><td>Select persistent-scatterer candidates</td><td><span class="code-inline">PATCH_*/select1.mat</span></td></tr>
-        <tr><td>4</td><td>Weed weak, adjacent, and duplicate candidates</td><td><span class="code-inline">PATCH_*/weed1.mat</span></td></tr>
-        <tr><td>5</td><td>Correct phase and merge patches</td><td><span class="code-inline">ifgstd2.mat</span></td></tr>
-        <tr><td>6</td><td>Unwrap phase with native integer-flow optimization</td><td><span class="code-inline">phuw2.mat</span></td></tr>
-        <tr><td>7</td><td>Estimate spatially correlated look-angle error</td><td><span class="code-inline">scla2.mat</span></td></tr>
-        <tr><td>8</td><td>Apply final space-time noise filtering</td><td><span class="code-inline">scn2.mat</span></td></tr>
-      </tbody></table>
-    </section>
-
-    <section class="card">
-      <h2>Scientific invariants</h2>
+      <h2>A small glossary</h2>
       <ul>
-        <li>MAT serialization preserves MATLAB dimensions, complex values, sparse/logical/character values, typed empties, NaN, and Inf.</li>
-        <li>One-based persisted identifiers are converted to zero-based indices only inside Rust kernels.</li>
-        <li>Stage 6 keeps master and dropped-interferogram columns zero.</li>
-        <li>Stage completion artifacts are committed only after the full output bundle succeeds.</li>
-        <li>Missing sensor metadata and unsupported algorithm branches fail instead of receiving plausible fabricated defaults.</li>
+        <li><strong>Acquisition:</strong> one radar image captured on one date.</li>
+        <li><strong>Reference or master:</strong> the one acquisition to which every secondary image is aligned.</li>
+        <li><strong>Interferogram:</strong> the phase difference between the reference and one secondary acquisition.</li>
+        <li><strong>Persistent scatterer (PS):</strong> a pixel whose radar response stays stable enough to measure phase through time.</li>
+        <li><strong>Wrapped phase:</strong> phase stored inside a repeating −π to +π interval. <strong>Unwrapping</strong> restores the missing whole 2π cycles.</li>
+        <li><strong>Perpendicular baseline:</strong> the cross-track separation between two satellite positions. Residual elevation error changes phase in proportion to this baseline.</li>
+        <li><strong>Patch:</strong> a manageable, slightly overlapping piece of the scene processed before the global merge.</li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>Stage 6 correctness and restartability</h2>
-      <p>The in-process Rust solver minimizes the integer-flow objective to convergence. It writes fingerprinted per-interferogram checkpoints below <span class="code-inline">.pystamps-stage6/</span>. Phase, geometry, baseline, date, selection, or solver changes invalidate affected checkpoints, and <span class="code-inline">phuw2.mat</span> appears only when all solves complete.</p>
-      <p>A positive flow-pass bound is rejected because that approximation failed scientific validation.</p>
+      <h2>Before Stage 1 — prepare candidates</h2>
+      <p><strong>Purpose:</strong> turn a SNAP StaMPS export into the raw point files that the scientific stages consume.</p>
+      <ol>
+        <li>Read every co-registered RSLC and normalize its amplitude so dates are comparable.</li>
+        <li>Compute amplitude dispersion at each pixel. A stable amplitude gives the first, deliberately broad PS candidate set.</li>
+        <li>Reject pixels with near-zero signal or invalid longitude, latitude, or height.</li>
+        <li>Split the scene into overlapping patches and extract each candidate’s wrapped phase across all interferograms.</li>
+        <li>Copy sensor heading and wavelength into <span class="code-inline">parms.mat</span>.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">PATCH_*/pscands.1.*</span>, <span class="code-inline">patch.list</span>, and <span class="code-inline">parms.mat</span>. See the <a href="inputs.html">Inputs guide</a> for the SNAP chain and exact export tree.</p>
     </section>
 
     <section class="card">
-      <h2>Explicit speed/accuracy trade</h2>
-      <p>The supported speed lever is grid spacing. The balanced profile multiplies spacing by 4 and the fast profile by 10, reducing dense grid cells by roughly 16 and 100 times respectively. Both profiles retain a converged flow solve.</p>
+      <h2>Stage 1 — organize the observations</h2>
+      <p><strong>Question answered:</strong> what was observed at every candidate point, on which dates, and at what position?</p>
+      <ol>
+        <li>Read candidate row/column, wrapped complex phase, longitude/latitude, height, and amplitude dispersion.</li>
+        <li>Read dates, the single reference date, per-interferogram baselines, and sensor geometry from the SNAP parameter and baseline files.</li>
+        <li>Put acquisitions in chronological order and create the reference column in the expected position.</li>
+        <li>Convert geographic coordinates to a local metric XY system, remove unusable rows, and spatially sort the candidates.</li>
+        <li>Reindex every related array together so point IDs, phase, height, and baselines still refer to the same rows.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">ps1.mat</span> (point/date geometry), <span class="code-inline">ph1.mat</span> (complex phase), <span class="code-inline">bp1.mat</span> (per-point baselines), and optional amplitude, height, and look-angle files. <span class="code-inline">ps1.mat</span> is the completion marker.</p>
+      <div class="callout"><strong>Why it matters:</strong> every later fit assumes these arrays are aligned. Stage 1 makes that contract explicit once.</div>
+    </section>
+
+    <section class="card">
+      <h2>Stage 2 — estimate phase stability</h2>
+      <p><strong>Question answered:</strong> which candidates have phase that can be explained consistently, rather than mostly by noise?</p>
+      <ol>
+        <li>Remove the reference phase so every interferogram uses the same phase origin.</li>
+        <li>Place nearby points on a spatial grid and apply the CLAP phase filter to estimate the slowly varying neighborhood signal.</li>
+        <li>For each candidate, fit <span class="code-inline">K</span>, the phase term proportional to perpendicular baseline. It represents residual topographic or look-angle error.</li>
+        <li>Fit a constant phase term <span class="code-inline">C</span>, calculate the remaining phase residual, and turn residual consistency into temporal coherence.</li>
+        <li>Repeat the estimate with P-square random-noise or SNR weighting until convergence or the configured iteration limit.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">pm1.mat</span>, containing coherence, <span class="code-inline">K</span>/<span class="code-inline">C</span>, filtered patch phase, residuals, and the random-coherence reference. Higher coherence means the candidate behaves more like a stable scatterer.</p>
+    </section>
+
+    <section class="card">
+      <h2>Stage 3 — select persistent scatterers</h2>
+      <p><strong>Question answered:</strong> where should the coherence cutoff be, and which candidates clear it?</p>
+      <ol>
+        <li>Group candidates by amplitude dispersion so points with similar amplitude behavior are compared fairly.</li>
+        <li>Compare the observed coherence distribution with the distribution expected from random phase.</li>
+        <li>Choose a threshold that limits the expected random points by density or percentage, then keep candidates strictly above it.</li>
+        <li>Normally refilter and refit the selected subset, recalculate the threshold, and reject unstable topographic-error estimates.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">select1.mat</span>, which records the source indices, threshold model, and final keep mask. This is statistical selection, not the final spatial cleanup.</p>
+    </section>
+
+    <section class="card">
+      <h2>Stage 4 — weed unreliable or redundant points</h2>
+      <p><strong>Question answered:</strong> which selected points remain trustworthy when their location and temporal noise are considered?</p>
+      <ol>
+        <li>Apply the Stage 3 keep mask and, when requested, keep only the best member of a group of adjacent candidates.</li>
+        <li>Remove duplicate locations and optionally zero-height points.</li>
+        <li>Correct the selected phase with the estimated topographic term.</li>
+        <li>Connect nearby points with a Delaunay network and measure phase noise along those edges through time.</li>
+        <li>Reject points whose temporal standard deviation or maximum noise exceeds the configured limits.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">weed1.mat</span>, with the final per-patch keep masks and noise measurements. The topology is used to judge local consistency; it does not change geographic coordinates.</p>
+    </section>
+
+    <section class="card">
+      <h2>Stage 5 — promote and merge the patches</h2>
+      <p><strong>Question answered:</strong> how do the independently cleaned patches become one scene without duplicated overlap points?</p>
+      <ol>
+        <li>Apply all selection and weeding masks to phase, geometry, baseline, height, and model arrays.</li>
+        <li>Correct and rereference phase, then write each patch’s version-2 products such as <span class="code-inline">ps2.mat</span>, <span class="code-inline">ph2.mat</span>, and <span class="code-inline">pm2.mat</span>.</li>
+        <li>Use each patch’s non-overlap bounds to assign one owner to shared borders.</li>
+        <li>Resolve remaining duplicate coordinates, join the owned rows, recompute local XY, and sort the merged scene.</li>
+        <li>Estimate an interferogram-level residual standard deviation for later noise weighting.</li>
+      </ol>
+      <p><strong>Writes:</strong> version-2 products in every patch and at the dataset root. Root <span class="code-inline">ifgstd2.mat</span> is the completion marker.</p>
+      <div class="callout"><strong>Scope boundary:</strong> after Stage 5, Stages 6–8 read the merged root products rather than looping over patches.</div>
+    </section>
+
+    <section class="card">
+      <h2>Stage 6 — unwrap the phase</h2>
+      <p><strong>Question answered:</strong> how many whole 2π cycles are missing from the wrapped phase at each point and date?</p>
+      <ol>
+        <li>Load merged phase and geometry, exclude the reference and any deliberately dropped interferograms, and apply available phase corrections.</li>
+        <li>Coalesce nearby PS on an unwrap grid. Optionally apply the Goldstein prefilter to reduce high-frequency noise.</li>
+        <li>Build spatial neighbor edges and estimate space-time phase differences and their uncertainty.</li>
+        <li>Translate those uncertainties into integer-flow costs, then solve each interferogram to convergence for the most consistent cycle corrections.</li>
+        <li>Interpolate the solved grid phase back to the original PS, restore required corrections, and keep reference/dropped columns at zero.</li>
+      </ol>
+      <p><strong>Writes:</strong> reusable <span class="code-inline">uw_*.mat</span> intermediates and the final <span class="code-inline">phuw2.mat</span>. The final file appears only after every requested interferogram succeeds.</p>
+      <p><strong>Restart behavior:</strong> fingerprinted per-interferogram checkpoints live under <span class="code-inline">.pystamps-stage6/</span>. Changes to phase, geometry, dates, baselines, selections, or scientific solver settings prevent stale reuse.</p>
+    </section>
+
+    <section class="card">
+      <h2>Stage 7 — estimate spatially correlated look-angle error</h2>
+      <p><strong>Question answered:</strong> how much of the unwrapped phase still follows baseline because the elevation/look angle is slightly wrong?</p>
+      <ol>
+        <li>Optionally remove a degree-1 spatial ramp and center phase on the configured geographic reference area.</li>
+        <li>Fit unwrapped phase against each point’s perpendicular-baseline history with the native L2 method.</li>
+        <li>Use acquisition timing and Stage 5 interferogram noise in the fit.</li>
+        <li>Compare each estimate with its Delaunay neighbors and clamp extreme <span class="code-inline">K</span>/<span class="code-inline">C</span> values to a spatially plausible envelope.</li>
+        <li>Build the phase correction predicted by the smoothed look-angle-error field.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">scla2.mat</span> with per-PS estimates and phase correction, plus <span class="code-inline">scla_smooth2.mat</span> for the smoothed field.</p>
+    </section>
+
+    <section class="card">
+      <h2>Stage 8 — estimate space-time correlated noise</h2>
+      <p><strong>Question answered:</strong> what broad phase pattern is shared by nearby points and varies through time?</p>
+      <ol>
+        <li>Start from unwrapped phase and subtract the Stage 7 SCLA, constant, and optional ramp terms.</li>
+        <li>Optionally fit and remove a spatial plane from selected interferograms.</li>
+        <li>Apply a temporal Gaussian high-pass so slow temporal behavior is separated from shorter changes.</li>
+        <li>Apply a spatial Gaussian low-pass to retain the part correlated over nearby points.</li>
+        <li>Reference the estimate consistently and force the reference-acquisition noise column to zero.</li>
+      </ol>
+      <p><strong>Writes:</strong> <span class="code-inline">scn2.mat</span>: <span class="code-inline">ph_scn_slave</span> (estimated correlated noise), <span class="code-inline">ph_hpt</span> (temporally high-passed phase), and <span class="code-inline">ph_ramp</span> (optional planes).</p>
+      <div class="warning"><strong>Interpretation:</strong> <span class="code-inline">scn2.mat</span> is a correction/noise product, not by itself a line-of-sight velocity map.</div>
+    </section>
+
+    <section class="card">
+      <h2>Run, resume, and rerun safely</h2>
+      <pre><code class="language-bash"># Preview writes without changing the dataset
+rustamps run --dataset DATASET --start-step 1 --end-step 8 --dry-run
+
+# Run a specific contiguous range
+rustamps run --dataset DATASET --start-step 3 --end-step 6
+
+# Resume: skip stages whose completion markers already exist
+rustamps run --dataset DATASET --start-step 0 --end-step 8</code></pre>
+      <p>A positive start stage means “rerun from here.” Before a stage writes, Rustamps removes products that depend on the old result. Rerunning a patch stage also invalidates merged products; rerunning a merged stage removes only later merged products. Every output bundle is transactional, so a marker is not published for half a stage.</p>
+    </section>
+
+    <section class="card">
+      <h2>Speed, verification, and supported scope</h2>
+      <p>The reviewed Stage 6 speed lever is grid spacing. Scale 4 makes each grid dimension about four times coarser; scale 10 makes it about ten times coarser. Both still solve integer flow to convergence, but coarsening changes spatial sampling and must be validated against the strict grid.</p>
       <pre><code class="language-bash">rustamps --config configs/stage6-fast.yaml run \
-  --dataset DATASET --start-step 6 --end-step 8</code></pre>
-      <p>Grid coarsening changes spatial sampling. Validate the chosen profile against a strict-grid result before accepting it for a dataset.</p>
-    </section>
+  --dataset DATASET --start-step 6 --end-step 8
 
-    <section class="card">
-      <h2>Verification is the acceptance gate</h2>
-      <pre><code class="language-bash">rustamps verify --run RUN --golden GOLDEN
 rustamps --config configs/stage6-fast.yaml verify \
-  --run RUN --golden GOLDEN \
-  --profile scientific --through-stage 6</code></pre>
-      <p>Strict mode checks exact structure and configured numeric tolerances. Scientific mode permits only bounded outliers with hard caps. Unwrapped phase is never wrapped merely to pass comparison.</p>
-    </section>
-
-    <section class="card">
-      <h2>Compatibility boundary</h2>
-      <p>Small-baseline processing, external unwrapping, non-native kernel providers, reference replay, and unsupported Stage 7/8 alternatives fail closed. See <a href="https://github.com/sirbastiano/rustamps/blob/HEAD/docs/native_runtime.md">the native runtime contract</a> for the complete current list.</p>
-      <p>The historical implementation under <span class="code-inline">oracle/</span> is used only for developer comparisons through explicit <span class="code-inline">make oracle-*</span> targets. It is not a production backend.</p>
-    </section>
-
-    <section class="card">
-      <h2>Detailed reference</h2>
-      <p>Read the maintained <a href="https://github.com/sirbastiano/rustamps/blob/HEAD/docs/pipeline_science_guide.md">Markdown science guide</a> for the full execution, configuration, and artifact contract.</p>
+  --run DATASET --golden STRICT_RESULT \
+  --profile scientific --final-products-only --through-stage 6</code></pre>
+      <p>The validated end-to-end contract is single-master PS processing. Small-baseline mode, external unwrapping, reference replay, non-native providers, atmospheric subtraction in Stage 7, and unsupported Stage 8 kriging fail before output publication. See <a href="configuration.html">Configuration</a> for supported parameters and tolerance rules.</p>
     </section>
   </main>
 </div>

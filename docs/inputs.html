@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Prepare Sentinel-1 SLC data in SNAP and export a Rustamps-compatible single-master PSI dataset." />
+  <title>Input data from SNAP - Rustamps</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
+</head>
+<body>
+<div class="site">
+  <aside class="sidebar">
+    <div class="logo">
+      <a href="index.html" aria-label="Rustamps documentation home">
+        <img class="brand-logo" src="assets/rustamps-logo.png" alt="" />
+        <h1>Rustamps</h1>
+      </a>
+    </div>
+    <small>Standalone Rust runtime</small>
+    <nav aria-label="Documentation">
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+        <li><a href="inputs.html">Inputs</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Guides</h2><ul class="nav-list">
+        <li><a href="usage.html">Run the pipeline</a></li>
+        <li><a href="configuration.html">Configuration</a></li>
+        <li><a href="pipeline-science-guide.html">Science guide</a></li>
+        <li><a href="verification.html">Verification</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Reference</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="function-reference.html">Command reference</a></li>
+        <li><a href="api/pystamps.html">Historical API</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><strong>v0.3.0</strong><br />Native Rust · Apache-2.0</div>
+  </aside>
+
+  <main class="content">
+    <div class="breadcrumb">Home / Inputs / SNAP export</div>
+    <h1>From Sentinel-1 SLC to Rustamps inputs</h1>
+    <p>Rustamps does not read a raw Sentinel-1 <span class="code-inline">.SAFE</span> product directly. First use SNAP to align a single-master stack, form differential interferograms, and run <strong>StaMPS Export</strong>. Then <span class="code-inline">rustamps prep snap</span> converts that Gamma-format export into patch inputs for Stage 1.</p>
+
+    <div class="warning">
+      <strong>Use Level-1 SLC, not GRD.</strong> SLC pixels retain the complex phase needed for interferometry. Terrain-corrected GeoTIFFs, unwrapped rasters, generic SNAP <span class="code-inline">.dim</span> products, and GRD amplitude images are not direct Rustamps inputs.
+    </div>
+
+    <section class="card">
+      <h2>1. Choose and download the acquisitions</h2>
+      <p>Search the <a href="https://dataspace.copernicus.eu/browser/">Copernicus Browser</a> for Sentinel-1 Level-1 <strong>IW SLC</strong> products. Keep one internally consistent stack:</p>
+      <ul>
+        <li>the same relative orbit and pass direction;</li>
+        <li>the same acquisition mode, polarization, and overlapping sub-swath/bursts;</li>
+        <li>one reference date used for every reference–secondary interferogram;</li>
+        <li>at least four secondary acquisitions, because the current SNAP StaMPS Export operator requires that minimum.</li>
+      </ul>
+      <p>The four-secondary rule is only an exporter floor, not a claim that five dates are scientifically sufficient. Use enough acquisitions for the stability, temporal coverage, and deformation signal your study needs.</p>
+    </section>
+
+    <section class="card">
+      <h2>2. Build the stack in SNAP</h2>
+      <p>The exact menu labels can move between SNAP versions, but the processing logic stays the same.</p>
+      <ol>
+        <li><strong>TOPS Split:</strong> select the same sub-swath, polarization, and common bursts from every SLC. This removes data that cannot participate in the shared radar grid.</li>
+        <li><strong>Apply Orbit File:</strong> replace predicted orbit metadata with precise or restituted orbit vectors when available. Better orbit geometry improves co-registration.</li>
+        <li><strong>Choose one reference:</strong> use the InSAR Stack Overview or a reviewed project choice, then keep that date fixed for the whole stack.</li>
+        <li><strong>Back Geocoding:</strong> resample every secondary SLC onto the reference radar grid using orbit data and a DEM. Inspect the result for alignment problems.</li>
+        <li><strong>Enhanced Spectral Diversity:</strong> refine azimuth alignment when the retained area spans multiple TOPS bursts.</li>
+        <li><strong>Interferogram Formation:</strong> combine each reference–secondary pair into complex wrapped phase. Remove flat-Earth and topographic phase, and request elevation plus orthorectified latitude/longitude bands.</li>
+        <li><strong>TOPS Deburst:</strong> join adjacent bursts for both the co-registered SLC stack and interferogram stack. If you subset, do it after deburst and use identical bounds on both products.</li>
+      </ol>
+      <p>Do not terrain-correct, Goldstein-filter, SNAPHU-unwrap, or generically multilook the products before export. Rustamps expects radar-grid complex samples and performs its own later filtering and unwrapping.</p>
+    </section>
+
+    <section class="card">
+      <h2>3. Run StaMPS Export</h2>
+      <p>Open <strong>Radar → Interferometric → PSI / SBAS → StaMPS Export</strong> and provide, in this order:</p>
+      <ol>
+        <li>the debursted, co-registered SLC stack containing the reference and secondaries;</li>
+        <li>the matching debursted differential-interferogram stack with elevation and orthorectified latitude/longitude.</li>
+      </ol>
+      <p>Select the <strong>PSI</strong> format and one output directory. The current operator writes Gamma-format rasters into <span class="code-inline">rslc</span>, <span class="code-inline">diff0</span>, <span class="code-inline">geo</span>, and sometimes <span class="code-inline">dem</span>. Older pair-based SNAP graphs may create separate subfolders; merge like-named folders into one dataset root before continuing.</p>
+      <div class="callout">
+        SNAP documentation next suggests <span class="code-inline">mt_prep_gamma</span>. For Rustamps, stop before that command and use <span class="code-inline">rustamps prep snap</span> instead.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4. Check the exported tree</h2>
+      <pre><code>INSAR_20200101/
+├── rslc/
+│   ├── 20200101.rslc
+│   ├── 20200101.rslc.par
+│   └── 20200113.rslc
+├── diff0/
+│   ├── 20200101_20200113.diff
+│   └── 20200101_20200113.base
+├── geo/
+│   ├── 20200101.lon
+│   ├── 20200101.lat
+│   └── elevation_dem.rdc
+└── dem/                         # optional SNAP output</code></pre>
+      <p>Repeat the dated RSLC and reference–secondary <span class="code-inline">.diff</span>/<span class="code-inline">.base</span> files for every acquisition. Rustamps requires a single reference date across all baselines and interferograms. The reference <span class="code-inline">.rslc.par</span> supplies raster geometry, heading, radar frequency, and orbit-derived values.</p>
+      <p>SNAP’s Gamma writer produces big-endian 32-bit values: interleaved real/imaginary floats for <span class="code-inline">.rslc</span> and <span class="code-inline">.diff</span>, and scalar floats for longitude, latitude, and height. Do not byte-swap or convert these files.</p>
+    </section>
+
+    <section class="card">
+      <h2>5. Prepare Rustamps patches</h2>
+      <pre><code class="language-bash">rustamps prep snap \
+  --dataset /data/INSAR_20200101 \
+  --master-date 20200101</code></pre>
+      <p>The command reads all RSLC amplitudes, computes amplitude dispersion, keeps pixels with finite geometry below the threshold, divides them into patches, and extracts each candidate’s wrapped phase history. It publishes <span class="code-inline">PATCH_*</span>, <span class="code-inline">patch.list</span>, and sensor values in <span class="code-inline">parms.mat</span>.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Option</th><th>Default</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="code-inline">--master-date</span></td><td>Detect</td><td>Reference date. It can be inferred from <span class="code-inline">INSAR_YYYYMMDD</span> or one unambiguous <span class="code-inline">diff0</span> prefix.</td></tr>
+          <tr><td><span class="code-inline">--amp-dispersion</span></td><td>0.4</td><td>Keep candidates strictly below this amplitude-dispersion threshold. Lower is more selective.</td></tr>
+          <tr><td><span class="code-inline">--range-patches</span></td><td>1</td><td>Number of patch columns.</td></tr>
+          <tr><td><span class="code-inline">--azimuth-patches</span></td><td>1</td><td>Number of patch rows.</td></tr>
+          <tr><td><span class="code-inline">--range-overlap</span></td><td>50</td><td>Extra range pixels included at each internal patch edge.</td></tr>
+          <tr><td><span class="code-inline">--azimuth-overlap</span></td><td>50</td><td>Extra azimuth pixels included at each internal patch edge.</td></tr>
+          <tr><td><span class="code-inline">--force</span></td><td>Off</td><td>Replace existing prepared <span class="code-inline">PATCH_*</span> inputs.</td></tr>
+        </tbody>
+      </table></div>
+      <pre><code class="language-bash">rustamps status --dataset /data/INSAR_20200101
+rustamps run --dataset /data/INSAR_20200101 --start-step 1 --end-step 1</code></pre>
+      <p>Running Stage 1 is the complete metadata preflight: it also parses every baseline file and the full reference geometry. A failed stage does not publish a partial completion artifact.</p>
+    </section>
+
+    <section class="card">
+      <h2>Common export failures</h2>
+      <ul>
+        <li><strong>No master can be inferred:</strong> pass <span class="code-inline">--master-date YYYYMMDD</span>.</li>
+        <li><strong>Missing <span class="code-inline">.lon</span>, <span class="code-inline">.lat</span>, or elevation:</strong> enable orthorectified coordinates and elevation before StaMPS Export.</li>
+        <li><strong>Unexpected raster size:</strong> one product was subset or debursted differently, or the Gamma parameter dimensions do not match the binaries.</li>
+        <li><strong>No candidates pass:</strong> inspect the RSLC stack and geocoding rasters before relaxing <span class="code-inline">--amp-dispersion</span>.</li>
+        <li><strong>Several reference dates appear:</strong> rebuild as one single-master PSI stack; Rustamps does not silently reinterpret an SBAS network.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Primary references</h2>
+      <ul>
+        <li><a href="https://documentation.dataspace.copernicus.eu/Data/Sentinel1.html">Copernicus Data Space: Sentinel-1 products</a></li>
+        <li><a href="https://documentation.dataspace.copernicus.eu/Applications/Browser.html">Copernicus Browser documentation</a></li>
+        <li><a href="https://step.esa.int/main/wp-content/help/versions/13.0.0/snap-toolboxes/eu.esa.microwavetbx.sar.op.insar.ui/operators/StampsExportOp.html">SNAP 13: StaMPS Export</a></li>
+        <li><a href="https://step.esa.int/main/wp-content/help/versions/13.0.0/snap-toolboxes/eu.esa.microwavetbx.sar.op.sentinel1.ui/operators/BackGeocodingOp.html">SNAP 13: Sentinel-1 Back Geocoding</a></li>
+        <li><a href="https://forum.step.esa.int/uploads/default/original/2X/5/5b74f3e92b42d2fa44a97bd41beb8163e0b85a6f.pdf">ESA SNAP–StaMPS integrated PSI workflow</a></li>
+        <li><a href="https://github.com/senbox-org/microwave-toolbox/blob/master/sar-op-insar/src/main/java/eu/esa/sar/insar/gpf/StampsExportOp.java">Upstream StaMPS Export operator source</a></li>
+      </ul>
+    </section>
+  </main>
+</div>
+</body>
+</html>

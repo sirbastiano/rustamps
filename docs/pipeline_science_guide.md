@@ -1,187 +1,212 @@
-# Rustamps Native Pipeline and Science Guide
+# Rustamps pipeline science guide
 
-Rustamps is a standalone Rust implementation of the StaMPS-style single-master
-processing workflow. The production binary reads and writes the established
-MATLAB artifact layout, but it does not load Python, MATLAB, SNAPHU, Triangle,
-or another executable at runtime.
+Rustamps implements the supported single-master persistent-scatterer workflow
+in eight native stages. Stages 1–4 work inside each patch, Stage 5 finishes and
+merges the patches, and Stages 6–8 work on the merged dataset.
 
-This guide describes the supported native path. The retained historical
-implementation is a developer-only oracle and is not a production backend or
-fallback.
+The production binary does not load Python, MATLAB, SNAPHU, Triangle, or
+another scientific executable at runtime. The retained historical
+implementation is a developer-only oracle, not a fallback backend.
 
-## Scientific boundary
+## Terms used below
 
-The dataset directory is the processing state. Patch products live below
-`PATCH_*`; merged products live at the dataset root. Run on a writable copy:
+- An **acquisition** is one radar image captured on one date.
+- The **reference** or **master** is the acquisition to which every secondary
+  image is aligned.
+- An **interferogram** is the phase difference between the reference and one
+  secondary.
+- A **persistent scatterer (PS)** is a pixel whose radar response remains
+  stable enough to follow phase through time.
+- **Wrapped phase** repeats from −π to +π. Unwrapping restores the missing
+  whole 2π cycles.
+- **Perpendicular baseline** is cross-track satellite separation. Residual
+  elevation error changes phase in proportion to it.
+- A **patch** is a slightly overlapping piece of the scene processed before
+  the global merge.
+
+## Before Stage 1: prepare candidates
+
+`rustamps prep snap` converts a compatible SNAP StaMPS export into the raw
+point files used by Stage 1:
+
+1. Read each co-registered RSLC and normalize its amplitude.
+2. Compute amplitude dispersion at every pixel.
+3. Reject near-zero signal and invalid longitude, latitude, or height.
+4. Keep pixels below the configured dispersion threshold.
+5. Partition them into overlapping patches and extract wrapped phase across
+   all reference–secondary interferograms.
+6. Write sensor heading and wavelength into `parms.mat`.
+
+It publishes `PATCH_*/pscands.1.*`, `patch.list`, and `parms.mat`. Preparation
+checks the raster tree and basic dimensions. Stage 1 later performs the full
+baseline and sensor-geometry check. See [Input data from SNAP](inputs.html).
+
+## Stage 1: organize the observations
+
+**Purpose:** align every candidate’s phase, geometry, date, and baseline.
+
+1. Read candidate row/column, complex phase, longitude/latitude, height, and
+   amplitude dispersion.
+2. Read acquisition dates, the single reference, baseline files, and reference
+   sensor geometry.
+3. Sort acquisitions chronologically and create the reference column in the
+   expected position.
+4. Convert longitude/latitude to a local metric XY system, remove unusable
+   rows, and spatially sort the candidates.
+5. Apply the same reindexing to every related array.
+
+It writes `ps1.mat`, `ph1.mat`, `bp1.mat`, `psver.mat`, and optional
+`da1.mat`, `hgt1.mat`, and `la1.mat`. `ps1.mat` is the completion marker.
+
+## Stage 2: estimate phase stability
+
+**Purpose:** measure how consistently each candidate’s phase can be explained.
+
+1. Remove the reference phase so interferograms share one phase origin.
+2. Grid nearby candidates and CLAP-filter the spatial phase.
+3. Fit `K`, the phase term proportional to perpendicular baseline. This
+   represents residual topographic or look-angle error.
+4. Fit constant phase `C`, calculate residuals, and convert residual
+   consistency into temporal coherence.
+5. Repeat with P-square random-noise or SNR weighting until convergence or the
+   configured iteration limit.
+
+It writes `pm1.mat` with coherence, `K`/`C`, filtered patch phase, residuals,
+and random-coherence reference data.
+
+## Stage 3: select persistent scatterers
+
+**Purpose:** derive a data-aware coherence cutoff and apply it.
+
+1. Group candidates into amplitude-dispersion bins.
+2. Compare observed coherence with the distribution expected from random
+   phase.
+3. Choose a threshold that limits expected random points by density or
+   percentage.
+4. Keep candidates strictly above that threshold.
+5. Normally refilter/refit the selected subset, recalculate the cutoff, and
+   reject unstable topographic-error estimates.
+
+It writes `select1.mat` with source indices, threshold information, and the
+final keep mask.
+
+## Stage 4: weed unreliable or redundant points
+
+**Purpose:** remove selected points that fail spatial or temporal checks.
+
+1. Apply Stage 3 selection.
+2. Optionally keep only the best adjacent candidate; remove duplicate
+   locations and optionally zero-height points.
+3. Correct phase with the estimated topographic term.
+4. Connect nearby points with a Delaunay network and measure temporal phase
+   noise on its edges.
+5. Reject points beyond the configured standard-deviation or maximum-noise
+   limits.
+
+It writes `weed1.mat` with the final patch keep masks and noise measurements.
+
+## Stage 5: promote and merge patches
+
+**Purpose:** produce one scene without duplicated overlap points.
+
+1. Apply all selection/weeding masks to phase, geometry, baseline, height, and
+   model arrays.
+2. Correct/rereference phase and write each patch’s version-2 products.
+3. Use non-overlap bounds to assign one owner to shared patch borders.
+4. Resolve remaining duplicate coordinates and join the owned rows.
+5. Recompute/sort merged XY and estimate residual standard deviation for each
+   interferogram.
+
+It writes patch and root `ps2.mat`, `ph2.mat`, `pm2.mat`, `bp2.mat`, and
+related products. Root `ifgstd2.mat` is the completion marker. Stages 6–8 use
+the merged root from this point onward.
+
+## Stage 6: unwrap phase
+
+**Purpose:** recover missing whole 2π cycles from wrapped phase.
+
+1. Load merged phase/geometry, exclude the reference and configured dropped
+   interferograms, and apply available corrections.
+2. Coalesce nearby PS onto an unwrap grid and optionally Goldstein-filter it.
+3. Build spatial neighbor edges and estimate space-time edge phase and
+   uncertainty.
+4. Convert uncertainty to integer-flow costs and solve every interferogram to
+   convergence.
+5. Interpolate the grid solution back to the original PS, restore required
+   corrections, and keep reference/dropped columns zero.
+
+It writes reusable `uw_*.mat` intermediates and final `phuw2.mat`.
+Fingerprinted per-interferogram checkpoints below `.pystamps-stage6/` are
+reused only when phase, geometry, dates, baselines, selection, and solver
+settings still match. `phuw2.mat` appears only after every solve succeeds.
+
+## Stage 7: estimate spatially correlated look-angle error
+
+**Purpose:** estimate unwrapped phase that still follows baseline because
+elevation/look angle is slightly wrong.
+
+1. Optionally remove a degree-1 ramp and center phase on a geographic reference
+   area.
+2. Fit unwrapped phase against each PS baseline history with the L2 method.
+3. Account for acquisition timing and Stage 5 interferogram noise.
+4. Compare each `K`/`C` estimate with Delaunay neighbors and clamp extremes to
+   a spatially plausible envelope.
+5. Build the correction predicted by the smoothed field.
+
+It writes `scla2.mat` and `scla_smooth2.mat`.
+
+## Stage 8: estimate space-time correlated noise
+
+**Purpose:** isolate broad phase patterns shared by nearby PS and changing
+through time.
+
+1. Subtract Stage 7 SCLA, constant, and optional ramp terms.
+2. Optionally remove a spatial plane from selected interferograms.
+3. Apply a temporal Gaussian high-pass.
+4. Apply a spatial Gaussian low-pass to retain nearby correlated structure.
+5. Reference the estimate consistently and force reference-acquisition noise
+   to zero.
+
+It writes `scn2.mat` with `ph_scn_slave`, `ph_hpt`, and `ph_ramp`.
+`scn2.mat` is a correction/noise product, not by itself a velocity map.
+
+## Run, resume, and invalidate
+
+Preview writes, run a range, or resume from existing markers:
 
 ```bash
-cp -a /path/to/source_dataset /path/to/run_dataset
-rustamps status --dataset /path/to/run_dataset
+rustamps run --dataset DATASET --start-step 1 --end-step 8 --dry-run
+rustamps run --dataset DATASET --start-step 3 --end-step 6
+rustamps run --dataset DATASET --start-step 0 --end-step 8
 ```
 
-MAT values preserve the StaMPS contracts that matter downstream:
+A positive start stage explicitly reruns from there. Before writing, Rustamps
+removes dependent later products. A patch rerun invalidates merged output; a
+merged rerun removes only later merged products. Every bundle is transactional,
+so a failed stage does not publish a false completion marker.
 
-- MATLAB artifact dimensions and column-major serialization;
-- one-based identifiers at file boundaries and zero-based Rust indices;
-- complex phase, sparse, logical, character, typed-empty, NaN, and Inf values;
-- zero master and dropped-interferogram columns in `phuw2.mat`;
-- transactional publication of each stage completion artifact.
+## Speed and verification
 
-## Pipeline stages
-
-| Stage | Scope | Scientific purpose | Completion artifact |
-| --- | --- | --- | --- |
-| 1 | patch | Load candidates, phase, baselines, height, and metadata | `PATCH_*/ps1.mat` |
-| 2 | patch | Estimate coherence and topographic-error terms | `PATCH_*/pm1.mat` |
-| 3 | patch | Select persistent-scatterer candidates | `PATCH_*/select1.mat` |
-| 4 | patch | Weed weak, adjacent, or duplicate candidates | `PATCH_*/weed1.mat` |
-| 5 | patch/root | Correct phase and merge patches | root `ifgstd2.mat` |
-| 6 | root | Unwrap phase with native integer-flow optimization | `phuw2.mat` |
-| 7 | root | Estimate spatially correlated look-angle error | `scla2.mat` |
-| 8 | root | Apply final space-time noise filtering | `scn2.mat` |
-
-Stages 1–5 process all discovered patches. Stage 5 then creates merged root
-products, and Stages 6–8 operate on those merged arrays.
-
-For a compatible SNAP export that has not been prepared, synthesize native
-patch inputs first:
-
-```bash
-rustamps prep snap --dataset /path/to/run_dataset
-```
-
-The preparation command derives wavelength and heading from the master RSLC
-metadata and writes them into `parms.mat` when missing. Invalid or incomplete
-sensor metadata is rejected rather than replaced with a plausible constant.
-
-## Execute and resume
-
-Rehearse the selected range without writes, then run it:
-
-```bash
-rustamps run --dataset /path/to/run_dataset \
-  --start-step 1 --end-step 8 --dry-run
-rustamps run --dataset /path/to/run_dataset \
-  --start-step 1 --end-step 8
-```
-
-An explicit positive start step recomputes the selected range and invalidates
-dependent later artifacts. Start step `0` resumes from valid completion
-artifacts:
-
-```bash
-rustamps run --dataset /path/to/run_dataset --start-step 0 --end-step 8
-```
-
-Stage 6 additionally writes atomic, fingerprinted per-interferogram
-checkpoints below `.pystamps-stage6/`. Changed phase, geometry, baselines,
-dates, selection, or solver settings invalidate affected checkpoints.
-`phuw2.mat` is published only after every requested interferogram succeeds.
-
-## Native Stage 6 solver
-
-Stage 6 uses the in-process Rust grid solver. It minimizes the StaMPS/SNAPHU-
-style integer-flow objective without executing SNAPHU. Flow optimization runs
-to convergence; a positive `stage6_max_flow_passes` is rejected because a
-bounded solve did not meet scientific validation.
-
-The default grid preserves `unwrap_grid_size`:
-
-```yaml
-runtime:
-  backend: native
-  stage2_kernel_backend: native
-  stage6_solver: native
-  cpu_workers: 0
-  stage6_ifg_workers: 0
-  stage6_grid_scale: 1.0
-  stage6_max_flow_passes: 0
-```
-
-`cpu_workers: 0` uses the available CPU budget. A positive value bounds the
-Rayon pool and may reduce peak memory. `stage6_ifg_workers: 0` adaptively uses
-up to four independent solves with a nine-million-active-cell budget and three
-Rayon threads per solve. Explicit `1`, `2`, or `4` values are safe upper bounds.
-This scheduling-only field is excluded from scientific fingerprints.
-
-Stage 6 writes `.pystamps-stage6/timing-v1-<fingerprint>.json` with input,
-grid, interpolation, space-time, cost, solve/output, and per-IFG core timings.
-
-### Speed/accuracy profiles
-
-Coarsening the Stage 6 grid is the supported speed/accuracy trade:
-
-- `configs/stage6-balanced.yaml` uses scale `4.0`;
-- `configs/stage6-fast.yaml` uses scale `10.0`;
-- experimental profiles use scale `15.0` or `20.0` with Stage-6-only bounds;
-- all retain a converged flow solve.
-
-A scale multiplies the configured grid spacing. Scale `4.0` therefore reduces
-dense grid cells by roughly sixteen times; scale `10.0` reduces them by
-roughly one hundred times. This changes spatial sampling, so accept a profile
-only after scientific comparison with a strict-grid run for the dataset.
-Use `--through-stage 6` for the experimental profiles; do not interpret their
-bounded Stage 6 comparison as approval of downstream SCLA or SCN differences.
-When the golden tree includes grid caches, also pass `--final-products-only`.
+`stage6_grid_scale` is the reviewed speed/accuracy trade. Larger values make a
+coarser unwrap grid but still solve integer flow to convergence. Compare a
+coarse profile with a strict-grid result for each dataset:
 
 ```bash
 rustamps --config configs/stage6-fast.yaml run \
-  --dataset /path/to/run_dataset --start-step 6 --end-step 8
-```
-
-## Verification
-
-Strict verification compares artifact presence, keys, dimensions, types, and
-values:
-
-```bash
-rustamps verify \
-  --run /path/to/run_dataset \
-  --golden /path/to/reference_dataset
-```
-
-Limit the contract to a completed prefix with `--through-stage 1` through
-`--through-stage 8`. The scientific profile permits only configured bounded
-numeric outliers and still enforces hard error caps and structural equality:
-
-```bash
+  --dataset DATASET --start-step 6 --end-step 8
 rustamps --config configs/stage6-fast.yaml verify \
-  --run /path/to/run_dataset \
-  --golden /path/to/reference_dataset \
+  --run DATASET --golden STRICT_RESULT \
   --profile scientific --final-products-only --through-stage 6
 ```
 
-Coarser-grid checks use `--final-products-only` so expected cache-shape changes
-do not hide or replace the final `phuw2.mat` comparison.
+Strict verification checks structure and configured numeric tolerances.
+Scientific verification permits only explicitly bounded outliers with a hard
+absolute cap. Unwrapped `ph_uw` is never wrapped merely to pass comparison.
 
-Wrapped equivalence is used only for configured cyclic keys. Unwrapped phase
-is never wrapped merely to make a comparison pass. Command completion by
-itself is not evidence of scientific parity; retain the verifier report with
-the run.
+## Supported boundary
 
-## Fail-closed compatibility
-
-Unsupported branches fail before writing scientifically different stand-ins.
-The current boundary includes small-baseline processing, an external Stage 6
-solver, Stage 7 L1/tropospheric/legacy APS alternatives, non-degree-1
-deramping, and Stage 8 kriging substitution. See
-[`native_runtime.md`](native_runtime.md) for the detailed list.
-
-Legacy `auto` values normalize to native. Python, CUDA, external-solver,
-per-kernel override, and reference-replay configuration values are rejected.
-Use `rustamps verify` to compare a run with an independently produced oracle.
-
-## Developer oracle
-
-Reference reproduction is isolated under `oracle/` and explicit `make
-oracle-*` targets. It may require development-only tools, but none are loaded,
-installed, or spawned by the production Rust binary.
-
-```bash
-make oracle-setup
-make oracle-test
-```
-
-For installation and the shortest production workflow, see
-[`getting_started.md`](getting_started.md). For crate boundaries and checkpoint
-publication, see [`architecture.md`](architecture.md).
+The validated end-to-end contract is single-master PS processing. Small
+baseline mode, external unwrapping, reference replay, non-native providers,
+Stage 7 atmospheric subtraction, and Stage 8 kriging fail before publication.
+See [Configuration](configuration.html) and
+[the native runtime contract](native_runtime.md) for exact supported values.

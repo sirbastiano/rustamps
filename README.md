@@ -160,6 +160,7 @@ The static documentation is ready to serve directly from GitHub Pages:
 
 - [Start here](https://sirbastiano.github.io/rustamps/)
 - [Installation](https://sirbastiano.github.io/rustamps/installation.html)
+- [Input data and SNAP export](https://sirbastiano.github.io/rustamps/inputs.html)
 - [Quick start](https://sirbastiano.github.io/rustamps/quickstart.html)
 - [Configuration](https://sirbastiano.github.io/rustamps/configuration.html)
 - [Pipeline science guide](https://sirbastiano.github.io/rustamps/pipeline-science-guide.html)

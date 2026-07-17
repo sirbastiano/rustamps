@@ -10,15 +10,40 @@
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.png" alt="Rustamps logo" /><h1>Rustamps</h1></div>
+    <div class="logo">
+      <a href="index.html" aria-label="Rustamps documentation home">
+        <img class="brand-logo" src="assets/rustamps-logo.png" alt="" />
+        <h1>Rustamps</h1>
+      </a>
+    </div>
     <small>Standalone Rust runtime</small>
-    <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
-      <li><a href="index.html">Introduction</a></li>
-      <li><a href="getting-started.html">Getting started</a></li>
-      <li><a href="configuration.html">Configuration</a></li>
-      <li><a href="pipeline-science-guide.html">Science guide</a></li>
-      <li><a href="function-reference.html">Command reference</a></li>
-    </ul></div></nav>
+    <nav aria-label="Documentation">
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+        <li><a href="inputs.html">Inputs</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Guides</h2><ul class="nav-list">
+        <li><a href="usage.html">Run the pipeline</a></li>
+        <li><a href="configuration.html">Configuration</a></li>
+        <li><a href="pipeline-science-guide.html">Science guide</a></li>
+        <li><a href="verification.html">Verification</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Reference</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="function-reference.html">Command reference</a></li>
+        <li><a href="api/pystamps.html">Historical API</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><strong>v0.3.0</strong><br />Native Rust · Apache-2.0</div>
   </aside>
   <main class="content">
     <div class="breadcrumb">Home / Architecture</div>

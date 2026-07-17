@@ -23,41 +23,33 @@
       </a>
     </div>
     <small>Standalone Rust runtime</small>
-
     <nav aria-label="Documentation">
-      <div class="nav-group">
-        <h2>Start here</h2>
-        <ul class="nav-list">
-          <li><a href="index.html">Overview</a></li>
-          <li><a href="installation.html">Installation</a></li>
-          <li><a href="quickstart.html">Quick start</a></li>
-        </ul>
-      </div>
-      <div class="nav-group">
-        <h2>Guides</h2>
-        <ul class="nav-list">
-          <li><a href="usage.html">Run the pipeline</a></li>
-          <li><a href="configuration.html">Configuration</a></li>
-          <li><a href="pipeline-science-guide.html">Science guide</a></li>
-          <li><a href="verification.html">Verification</a></li>
-        </ul>
-      </div>
-      <div class="nav-group">
-        <h2>Project</h2>
-        <ul class="nav-list">
-          <li><a href="architecture.html">Architecture</a></li>
-          <li><a href="function-reference.html">Command reference</a></li>
-          <li><a href="faq.html">FAQ</a></li>
-          <li><a href="contributing.html">Contributing</a></li>
-          <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
-        </ul>
-      </div>
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+        <li><a href="inputs.html">Inputs</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Guides</h2><ul class="nav-list">
+        <li><a href="usage.html">Run the pipeline</a></li>
+        <li><a href="configuration.html">Configuration</a></li>
+        <li><a href="pipeline-science-guide.html">Science guide</a></li>
+        <li><a href="verification.html">Verification</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Reference</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="function-reference.html">Command reference</a></li>
+        <li><a href="api/pystamps.html">Historical API</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
     </nav>
-
-    <div class="sidebar-footer">
-      <span class="status-dot"></span><strong>v0.3.0</strong><br />
-      Native Rust · Apache-2.0
-    </div>
+    <div class="sidebar-footer"><span class="status-dot"></span><strong>v0.3.0</strong><br />Native Rust · Apache-2.0</div>
   </aside>
 
   <main class="content">
@@ -151,6 +143,7 @@ conda run -n rustamps rustamps verify --run /data/run --golden /data/golden</cod
       <span class="eyebrow">Explore</span>
       <h2>Pick a route through the docs</h2>
       <div class="link-card-grid">
+        <a class="link-card" href="inputs.html"><h3>Prepare input data →</h3><p>Download Sentinel-1 SLC, process it in SNAP, and export the exact Gamma-format tree.</p></a>
         <a class="link-card" href="installation.html"><h3>Install Rustamps →</h3><p>Conda, source builds, platforms, and runtime boundaries.</p></a>
         <a class="link-card" href="pipeline-science-guide.html"><h3>Understand the science →</h3><p>Stages, products, checkpoints, supported modes, and tradeoffs.</p></a>
         <a class="link-card" href="configuration.html"><h3>Tune a run →</h3><p>Worker limits, strict defaults, and explicit Stage 6 profiles.</p></a>

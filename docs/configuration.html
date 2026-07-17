@@ -10,74 +10,169 @@
 <body>
 <div class="site">
   <aside class="sidebar">
-    <div class="logo"><img class="brand-logo" src="assets/rustamps-logo.png" alt="Rustamps logo" /><h1>Rustamps</h1></div>
+    <div class="logo">
+      <a href="index.html" aria-label="Rustamps documentation home">
+        <img class="brand-logo" src="assets/rustamps-logo.png" alt="" />
+        <h1>Rustamps</h1>
+      </a>
+    </div>
     <small>Standalone Rust runtime</small>
-    <nav><div class="nav-group"><h2>Native guides</h2><ul class="nav-list">
-      <li><a href="index.html">Introduction</a></li>
-      <li><a href="installation.html">Installation</a></li>
-      <li><a href="quickstart.html">Quick start</a></li>
-      <li><a href="configuration.html">Configuration</a></li>
-      <li><a href="usage.html">Usage</a></li>
-      <li><a href="pipeline-science-guide.html">Science guide</a></li>
-    </ul></div></nav>
+    <nav aria-label="Documentation">
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+        <li><a href="inputs.html">Inputs</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Guides</h2><ul class="nav-list">
+        <li><a href="usage.html">Run the pipeline</a></li>
+        <li><a href="configuration.html">Configuration</a></li>
+        <li><a href="pipeline-science-guide.html">Science guide</a></li>
+        <li><a href="verification.html">Verification</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Reference</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="function-reference.html">Command reference</a></li>
+        <li><a href="api/pystamps.html">Historical API</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><strong>v0.3.0</strong><br />Native Rust · Apache-2.0</div>
   </aside>
   <main class="content">
     <div class="breadcrumb">Home / Configuration</div>
-    <h1>Native runtime configuration</h1>
-    <p>Pass YAML or JSON with <span class="code-inline">rustamps --config CONFIG COMMAND</span>. Unknown fields and unsupported legacy values fail during loading.</p>
+    <h1>Configure a Rustamps run</h1>
+    <p>Rustamps has two deliberately separate configuration layers. A YAML/JSON file controls the runtime and verifier. Scientific processing parameters live in StaMPS-compatible MAT files beside the dataset. Keeping them separate makes it clear whether a value changes scheduling, acceptance criteria, or the scientific method.</p>
 
     <section class="card">
-      <h2>Minimal explicit configuration</h2>
+      <h2>The two layers</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Layer</th><th>Location</th><th>Controls</th></tr></thead>
+        <tbody>
+          <tr><td>Run configuration</td><td><span class="code-inline">--config run.yaml</span></td><td>CPU scheduling, Stage 6 grid/parallelism, and verification tolerances.</td></tr>
+          <tr><td>Science parameters</td><td><span class="code-inline">parms.mat</span> and optional <span class="code-inline">localparms.mat</span></td><td>Filtering, selection, weeding, unwrapping, reference area, and noise-estimation choices.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Do not put scientific parameters such as <span class="code-inline">unwrap_grid_size</span> in YAML: they are unknown fields there. Likewise, changing a verifier tolerance does not change a pipeline result.</p>
+    </section>
+
+    <section class="card">
+      <h2>Loading and precedence</h2>
+      <ol>
+        <li>Rustamps starts from built-in defaults.</li>
+        <li><span class="code-inline">rustamps --config FILE COMMAND</span> overlays the run configuration. A <span class="code-inline">.json</span> suffix selects JSON; every other suffix is read as YAML.</li>
+        <li>For <span class="code-inline">verify</span>, <span class="code-inline">--profile strict|scientific</span> overrides <span class="code-inline">tolerance.profile</span>.</li>
+        <li>For <span class="code-inline">run</span>, <span class="code-inline">--cpu-workers N</span> overrides <span class="code-inline">runtime.cpu_workers</span>.</li>
+      </ol>
+      <p>All sections and fields are optional, but unknown names fail immediately. This catches spelling errors instead of silently accepting a configuration that does nothing.</p>
+      <pre><code class="language-bash">rustamps --config configs/native-kernels.yaml run \
+  --dataset /data/INSAR_20200101 --start-step 1 --end-step 8</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>Minimal explicit YAML</h2>
       <pre><code class="language-yaml">runtime:
   backend: native
   stage2_kernel_backend: native
   stage6_solver: native
   cpu_workers: 0
   stage6_grid_scale: 1.0
-  stage6_max_flow_passes: 0</code></pre>
+  stage6_max_flow_passes: 0
+  stage6_ifg_workers: 0
+
+tolerance:
+  profile: strict
+  rtol: 1.0e-5
+  atol: 1.0e-7</code></pre>
+      <p>You may omit values that equal their defaults. <span class="code-inline">backend</span>, <span class="code-inline">stage2_kernel_backend</span>, and <span class="code-inline">stage6_solver</span> identify the native implementation; they are not performance knobs.</p>
     </section>
 
     <section class="card">
-      <h2>Active runtime fields</h2>
-      <table><thead><tr><th>Field</th><th>Contract</th></tr></thead><tbody>
-        <tr><td><span class="code-inline">backend</span></td><td><span class="code-inline">native</span>; legacy <span class="code-inline">auto</span> normalizes to native</td></tr>
-        <tr><td><span class="code-inline">stage2_kernel_backend</span></td><td><span class="code-inline">native</span> or native alias <span class="code-inline">auto</span></td></tr>
-        <tr><td><span class="code-inline">stage6_solver</span></td><td>In-process native solver; <span class="code-inline">native</span>, <span class="code-inline">auto</span>, and <span class="code-inline">backend</span> normalize to native</td></tr>
-        <tr><td><span class="code-inline">cpu_workers</span></td><td>Zero uses the available CPU budget; positive values bound the worker pool</td></tr>
-        <tr><td><span class="code-inline">stage6_grid_scale</span></td><td>Finite positive multiplier for Stage 6 grid spacing</td></tr>
-        <tr><td><span class="code-inline">stage6_max_flow_passes</span></td><td>Must be zero so the flow optimizer converges</td></tr>
-      </tbody></table>
+      <h2>Effective runtime controls</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Field</th><th>Default</th><th>Detailed behavior</th></tr></thead>
+        <tbody>
+          <tr><td><span class="code-inline">cpu_workers</span></td><td>0</td><td>Zero uses the process-wide Rayon CPU budget. A positive number creates a pool with that many threads. The run-command flag has final precedence.</td></tr>
+          <tr><td><span class="code-inline">stage6_grid_scale</span></td><td>1.0</td><td>A finite positive multiplier applied to <span class="code-inline">parms.mat:unwrap_grid_size</span>. Larger values make a coarser unwrap grid: usually faster and less spatially detailed.</td></tr>
+          <tr><td><span class="code-inline">stage6_ifg_workers</span></td><td>0</td><td>How many interferograms Stage 6 may solve concurrently. Allowed values are 0 (adaptive), 1, 2, or 4. Adaptive mode respects the CPU and active-grid memory budgets.</td></tr>
+          <tr><td><span class="code-inline">stage6_max_flow_passes</span></td><td>0</td><td>Must remain zero, meaning solve integer flow to convergence. Positive pass limits failed scientific validation and are rejected.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Changing <span class="code-inline">stage6_ifg_workers</span> changes scheduling, not the output fingerprint. Changing grid scale changes the scientific sampling and invalidates affected Stage 6 checkpoints.</p>
+    </section>
+
+    <section class="card">
+      <h2>Native selectors and fixed fields</h2>
+      <ul>
+        <li><span class="code-inline">runtime.backend</span> and <span class="code-inline">runtime.stage2_kernel_backend</span> accept <span class="code-inline">native</span> or the alias <span class="code-inline">auto</span>.</li>
+        <li><span class="code-inline">runtime.stage6_solver</span> accepts <span class="code-inline">native</span>, <span class="code-inline">auto</span>, or <span class="code-inline">backend</span>; all normalize to the in-process native solver.</li>
+        <li><span class="code-inline">snaphu</span>, <span class="code-inline">external</span>, Python/CUDA providers, and non-empty backend override maps fail closed.</li>
+      </ul>
+      <p>Older schemas still serialize some fields for compatibility, but they have no separate native implementation. If present, these must keep their defaults: <span class="code-inline">io_workers: 8</span>, <span class="code-inline">stage2_native_threads: 0</span>, <span class="code-inline">stage7_chunk_ps: 100000</span>, <span class="code-inline">stage8_chunk_edges: 200000</span>, MAT cache enabled, Stage 2 checkpoint mode <span class="code-inline">final</span>/interval <span class="code-inline">1</span>, and both debug flags false. Prefer removing them.</p>
+      <p>The <span class="code-inline">compatibility</span> section must remain at <span class="code-inline">reference_root: null</span> and <span class="code-inline">strict_reference: false</span>. Historical reference replay is a developer workflow, not a production backend.</p>
     </section>
 
     <section class="card">
       <h2>Verification tolerances</h2>
+      <p>For ordinary numeric values, a comparison passes when:</p>
+      <pre><code>absolute_error ≤ atol + rtol × absolute(reference)</code></pre>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Field</th><th>Default</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="code-inline">profile</span></td><td>strict</td><td><span class="code-inline">strict</span> allows no outlier fraction. <span class="code-inline">scientific</span> can allow a reviewed bounded fraction.</td></tr>
+          <tr><td><span class="code-inline">rtol</span> / <span class="code-inline">atol</span></td><td>1e-5 / 1e-7</td><td>Global relative and absolute tolerance; both must be finite and non-negative.</td></tr>
+          <tr><td><span class="code-inline">wrap_equivalence</span></td><td>true</td><td>Compare listed wrapped-phase keys modulo <span class="code-inline">wrap_period</span>.</td></tr>
+          <tr><td><span class="code-inline">wrap_period</span></td><td>2π</td><td>Finite positive wrap period.</td></tr>
+          <tr><td><span class="code-inline">wrap_keys</span></td><td><span class="code-inline">dph_noise</span></td><td>Keys eligible for wrapped comparison. Unwrapped <span class="code-inline">ph_uw</span> is never wrapped to pass.</td></tr>
+          <tr><td><span class="code-inline">exact_keys</span></td><td>Identity/index keys</td><td>Named indices, counts, edges, and fingerprints must match exactly regardless of numeric tolerances.</td></tr>
+          <tr><td><span class="code-inline">max_outlier_fraction</span></td><td>0</td><td>Fraction in [0, 1]. A nonzero value requires the scientific profile and a hard <span class="code-inline">max_abs</span>.</td></tr>
+          <tr><td><span class="code-inline">key_tolerances</span></td><td>{}</td><td>Per-key <span class="code-inline">rtol</span>, <span class="code-inline">atol</span>, outlier fraction, and cap. Unspecified values inherit globals.</td></tr>
+        </tbody>
+      </table></div>
       <pre><code class="language-yaml">tolerance:
   profile: scientific
   rtol: 1.0e-5
   atol: 1.0e-7
-  max_outlier_fraction: 0.001
-  max_abs: 0.05
   key_tolerances:
     ph_uw:
       atol: 0.001
       max_outlier_fraction: 0.001
       max_abs: 0.05</code></pre>
-      <p>Nonzero outlier fractions require the scientific profile and a finite hard <span class="code-inline">max_abs</span> cap. Exact-key and wrapped-key policies remain enforced.</p>
     </section>
 
     <section class="card">
-      <h2>Rejected legacy options</h2>
-      <p>External solvers, Python/CUDA providers, reference replay, per-kernel overrides, bounded Stage 6 flow passes, and non-default inert worker, chunk, cache, checkpoint, or debug fields are rejected. This prevents a configuration from appearing effective while being ignored.</p>
+      <h2>Scientific MAT parameters</h2>
+      <p><span class="code-inline">parms.mat</span> is normally created or retained with the dataset. For patch stages, <span class="code-inline">PATCH_N/localparms.mat</span> overlays the shared parameters; for merged stages, a dataset-root <span class="code-inline">localparms.mat</span> overlays them. Values are case-insensitive where shown as named choices. Text flags accept <span class="code-inline">y/yes/true/1</span> and <span class="code-inline">n/no/false/0</span>; a numeric MAT scalar is not a flag encoding.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stage</th><th>Common supported keys and defaults</th><th>What they change</th></tr></thead>
+        <tbody>
+          <tr><td>2 — estimate</td><td><span class="code-inline">filter_grid_size=50</span>, <span class="code-inline">clap_win=32</span>, <span class="code-inline">clap_alpha=1</span>, <span class="code-inline">clap_beta=0.3</span>, <span class="code-inline">clap_low_pass_wavelength=800</span>, <span class="code-inline">gamma_max_iterations=3</span>, <span class="code-inline">gamma_change_convergence=.005</span>, <span class="code-inline">filter_weighting=P-square|SNR</span>, <span class="code-inline">max_topo_err=20</span></td><td>Spatial phase filtering and iterative coherence/topographic-error estimation. <span class="code-inline">quick_est_gamma_flag</span> must be true and <span class="code-inline">lambda</span> positive.</td></tr>
+          <tr><td>3 — select</td><td><span class="code-inline">select_method=DENSITY|PERCENT</span>, <span class="code-inline">density_rand=20</span> or <span class="code-inline">percent_rand=20</span>, <span class="code-inline">select_reest_gamma_flag=true</span>, <span class="code-inline">slc_osf=1</span></td><td>How the random-coherence model sets the PS threshold and whether selected points are refitted. <span class="code-inline">gamma_stdev_reject</span> must be zero.</td></tr>
+          <tr><td>4 — weed</td><td><span class="code-inline">weed_neighbours=false</span>, <span class="code-inline">weed_zero_elevation=false</span>, <span class="code-inline">weed_standard_dev=1 rad</span>, <span class="code-inline">weed_max_noise=Inf</span>, <span class="code-inline">weed_time_win=730 d</span></td><td>Adjacent-point, height, and temporal-noise rejection.</td></tr>
+          <tr><td>5 — merge</td><td><span class="code-inline">merge_resample_size=0</span>, finite <span class="code-inline">heading</span></td><td>Resampling must remain zero. Small-baseline merge is unsupported.</td></tr>
+          <tr><td>6 — unwrap</td><td><span class="code-inline">unwrap_method=3D|3D_NEW|3D_FULL</span> (default <span class="code-inline">3D</span>), <span class="code-inline">unwrap_grid_size=200 m</span>, <span class="code-inline">unwrap_prefilter_flag=true</span>, <span class="code-inline">unwrap_gold_n_win=32</span>, <span class="code-inline">unwrap_gold_alpha=.8</span>, <span class="code-inline">unwrap_time_win=730 d</span>, <span class="code-inline">drop_ifg_index=[]</span></td><td>Unwrap grid, Goldstein prefilter, temporal costs, and excluded interferograms. Look-angle error must stay enabled; custom spatial cost, hold-good, patch-phase, tropo, and small-baseline modes are rejected.</td></tr>
+          <tr><td>7 — SCLA</td><td><span class="code-inline">scla_method=L2</span>, <span class="code-inline">scla_deramp=false</span>, <span class="code-inline">ref_lon/ref_lat=[-Inf,Inf]</span>, <span class="code-inline">ref_radius=Inf</span>, <span class="code-inline">scla_drop_index=[]</span></td><td>L2 look-angle-error fit, optional degree-1 ramp, reference area, and excluded interferograms.</td></tr>
+          <tr><td>8 — noise</td><td><span class="code-inline">scn_time_win=365 d</span>, <span class="code-inline">scn_wavelength=100 m</span>, <span class="code-inline">scn_deramp_ifg=""</span>, <span class="code-inline">scn_kriging_flag=false</span></td><td>Temporal high-pass, spatial low-pass, and optional plane removal. Kriging is unsupported.</td></tr>
+        </tbody>
+      </table></div>
+      <div class="warning"><strong>Single-master contract:</strong> keep <span class="code-inline">small_baseline_flag=false</span>. Unsupported branches fail before publication rather than being approximated.</div>
     </section>
 
     <section class="card">
       <h2>Checked profiles</h2>
       <ul>
-        <li><span class="code-inline">configs/native-kernels.yaml</span>: strict grid scale 1.0.</li>
-        <li><span class="code-inline">configs/stage6-balanced.yaml</span>: coarser scale 4.0.</li>
-        <li><span class="code-inline">configs/stage6-fast.yaml</span>: coarser scale 10.0.</li>
+        <li><span class="code-inline">configs/native-kernels.yaml</span>: strict grid, scale 1.0.</li>
+        <li><span class="code-inline">configs/stage6-balanced.yaml</span>: scale 4.0 with scientific verification.</li>
+        <li><span class="code-inline">configs/stage6-fast.yaml</span>: scale 10.0 with reviewed per-key tolerances.</li>
+        <li><span class="code-inline">configs/stage6-experimental-15x.yaml</span> and <span class="code-inline">20x</span>: explicitly experimental coarse grids.</li>
       </ul>
-      <p>Balanced and fast profiles trade spatial resolution for speed; both keep flow optimization converged and require scientific verification.</p>
+      <p>A profile is a starting point, not evidence that its tolerance is valid for a new dataset. Compare a representative result against the strict grid before accepting a coarser configuration.</p>
     </section>
   </main>
 </div>
