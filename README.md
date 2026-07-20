@@ -58,9 +58,14 @@ conda create -n rustamps \
   -c conda-forge \
   rustamps=0.3.0
 
-conda run -n rustamps rustamps --version
-conda run -n rustamps rustamps describe-backends
+conda activate rustamps
+rustamps --version
+rustamps describe-backends
 ```
+
+For non-interactive shells, leave the environment inactive and prefix commands
+with `conda run -n rustamps`, for example
+`conda run -n rustamps rustamps --version`.
 
 Browse every available package and platform on
 [Anaconda.org](https://anaconda.org/sirbastiano/rustamps). Tagged source and
@@ -81,6 +86,14 @@ git clone https://github.com/sirbastiano/rustamps.git
 cd rustamps
 cargo install --path . --locked
 rustamps --help
+```
+
+If `cargo install` succeeds but `rustamps` is not found, add Cargo's binary
+directory to `PATH` (normally `$HOME/.cargo/bin` on Unix or
+`%USERPROFILE%\.cargo\bin` on Windows). For the current Unix shell:
+
+```bash
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 ```
 
 No Python environment or system HDF5 library is required.

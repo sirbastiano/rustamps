@@ -14,6 +14,10 @@ cargo install --path . --locked
 rustamps describe-backends
 ```
 
+If `cargo install` succeeds but the command is not found, ensure Cargo's binary
+directory is on `PATH` (normally `$HOME/.cargo/bin` on Unix or
+`%USERPROFILE%\.cargo\bin` on Windows).
+
 The root Cargo package is the production package. Its dependency graph is the
 authoritative runtime dependency list.
 
@@ -26,9 +30,13 @@ clean installation and runtime-boundary check is:
 
 ```bash
 conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
-conda run -n rustamps rustamps --version
-conda run -n rustamps rustamps describe-backends
+conda activate rustamps
+rustamps --version
+rustamps describe-backends
 ```
+
+For CI and other non-interactive shells, use
+`conda run -n rustamps rustamps COMMAND` instead of activation.
 
 The compiled Conda subdirectories are `linux-64`, `linux-aarch64`, `osx-64`,
 `osx-arm64`, `win-64`, and `win-arm64`. Linux packages require glibc 2.17 or

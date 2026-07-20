@@ -55,8 +55,10 @@
       <p>The <span class="code-inline">rustamps</span> 0.3.0 development-channel Conda package contains only the native Rust CLI. It does not install Python, a system HDF5 library, SNAPHU, or another external scientific executable.</p>
       <p>Install and smoke-test it in a clean environment:</p>
       <pre><code class="language-bash">conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
-conda run -n rustamps rustamps --version
-conda run -n rustamps rustamps describe-backends</code></pre>
+conda activate rustamps
+rustamps --version
+rustamps describe-backends</code></pre>
+      <p>For CI and other non-interactive shells, leave the environment inactive and use <span class="code-inline">conda run -n rustamps rustamps COMMAND</span>.</p>
       <p>Compiled packages target <span class="code-inline">linux-64</span>, <span class="code-inline">linux-aarch64</span>, <span class="code-inline">osx-64</span>, <span class="code-inline">osx-arm64</span>, <span class="code-inline">win-64</span>, and <span class="code-inline">win-arm64</span>. Linux packages require glibc 2.17 or newer, macOS packages require macOS 11 or newer, and the CLI is neither a musl nor <span class="code-inline">noarch</span> package.</p>
       <p>Windows ARM64 remains experimental on the <span class="code-inline">dev</span> label until native ARM64 CI passes. Promotion of the exact tested artifacts to <span class="code-inline">main</span> requires an explicit release decision.</p>
     </section>
@@ -70,6 +72,18 @@ cargo install --path . --locked
 rustamps --help
 rustamps describe-backends</code></pre>
       <p><span class="code-inline">describe-backends</span> should report the native provider and an empty runtime-external-dependency list.</p>
+    </section>
+
+    <section class="card">
+      <h2>If <span class="code-inline">rustamps</span> is not found</h2>
+      <p>A Conda environment is not added to the current shell's <span class="code-inline">PATH</span> until it is activated. Confirm the package without activation:</p>
+      <pre><code class="language-bash">conda run -n rustamps rustamps --version</code></pre>
+      <p>For a source install, Cargo's binary directory must be on <span class="code-inline">PATH</span>. On Unix it is normally <span class="code-inline">$HOME/.cargo/bin</span>:</p>
+      <pre><code class="language-bash">export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
+rustamps --version</code></pre>
+      <p>In PowerShell it is normally <span class="code-inline">$env:USERPROFILE\.cargo\bin</span>:</p>
+      <pre><code class="language-powershell">$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
+rustamps --version</code></pre>
     </section>
 
     <section class="card">

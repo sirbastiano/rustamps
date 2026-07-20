@@ -15,6 +15,15 @@ README = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 NATIVE_DOC = (REPO_ROOT / "docs" / "native_runtime.md").read_text(encoding="utf-8")
 RELEASE_DOC = (REPO_ROOT / "docs" / "release.md").read_text(encoding="utf-8")
 DOC_INDEX = (REPO_ROOT / "docs" / "index.html").read_text(encoding="utf-8")
+GETTING_STARTED_DOC = (REPO_ROOT / "docs" / "getting-started.html").read_text(
+    encoding="utf-8"
+)
+GETTING_STARTED_MD = (REPO_ROOT / "docs" / "getting_started.md").read_text(
+    encoding="utf-8"
+)
+INSTALL_DOC = (REPO_ROOT / "docs" / "installation.html").read_text(encoding="utf-8")
+QUICKSTART_DOC = (REPO_ROOT / "docs" / "quickstart.html").read_text(encoding="utf-8")
+FAQ_DOC = (REPO_ROOT / "docs" / "faq.html").read_text(encoding="utf-8")
 RECIPE = (REPO_ROOT / "recipe" / "recipe.yaml").read_text(encoding="utf-8")
 CONDA_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "conda-package.yml").read_text(
     encoding="utf-8"
@@ -145,11 +154,19 @@ def test_release_surfaces_publish_rustamps_0_3_0() -> None:
 
 
 def test_current_docs_define_native_install_and_release() -> None:
+    def assert_conda_activation_precedes_cli(document: str) -> None:
+        create = document.index("conda create -n rustamps")
+        activate = document.index("conda activate rustamps", create)
+        first_cli = document.index("\nrustamps", create)
+        assert create < activate < first_cli
+
     assert "# Rustamps" in README
     assert "`rustamps` 0.3.0" in README
     assert "rustamps --help" in README
     assert "Standalone Rust implementation" in README
     assert "cargo install --path ." in README
+    assert "conda run -n rustamps rustamps --version" in README
+    assert "${CARGO_HOME:-$HOME/.cargo}/bin" in README
     assert "No Python environment or system HDF5 library is required" in README
     assert "tool.uv.package = false" in README
 
@@ -161,6 +178,21 @@ def test_current_docs_define_native_install_and_release() -> None:
     assert "cargo install --path . --locked" in DOC_INDEX
     assert "Historical oracle material" in DOC_INDEX
     assert "uv run pystamps" not in DOC_INDEX
+
+    for document in (
+        README,
+        NATIVE_DOC,
+        DOC_INDEX,
+        GETTING_STARTED_DOC,
+        GETTING_STARTED_MD,
+        INSTALL_DOC,
+        QUICKSTART_DOC,
+    ):
+        assert_conda_activation_precedes_cli(document)
+    assert "conda activate rustamps" in FAQ_DOC
+    assert "conda run -n rustamps rustamps --version" in INSTALL_DOC
+    assert "${CARGO_HOME:-$HOME/.cargo}/bin" in INSTALL_DOC
+    assert r'$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"' in INSTALL_DOC
 
     assert "# Native release process" in RELEASE_DOC
     assert "cargo test --workspace --locked" in RELEASE_DOC

@@ -95,9 +95,10 @@
       <span class="eyebrow">Quick start</span>
       <h2>Install, inspect, run</h2>
       <pre><code>conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
-conda run -n rustamps rustamps status --dataset /data/run
-conda run -n rustamps rustamps run --dataset /data/run --start-step 1 --end-step 8
-conda run -n rustamps rustamps verify --run /data/run --golden /data/golden</code></pre>
+conda activate rustamps
+rustamps status --dataset /data/run
+rustamps run --dataset /data/run --start-step 1 --end-step 8
+rustamps verify --run /data/run --golden /data/golden</code></pre>
       <p>
         Prefer source builds? Install Rust 1.89+, clone the repository, and run
         <span class="code-inline">cargo install --path . --locked</span>.

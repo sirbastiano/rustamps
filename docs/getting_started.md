@@ -13,9 +13,13 @@ environment with:
 
 ```bash
 conda create -n rustamps -c sirbastiano/label/dev -c conda-forge rustamps=0.3.0
-conda run -n rustamps rustamps --version
-conda run -n rustamps rustamps describe-backends
+conda activate rustamps
+rustamps --version
+rustamps describe-backends
 ```
+
+For a non-interactive shell, use
+`conda run -n rustamps rustamps COMMAND` instead of activating the environment.
 
 `describe-backends` must report an empty `runtime_external_dependencies` list.
 Compiled packages are produced for `linux-64`, `linux-aarch64`, `osx-64`,
@@ -37,6 +41,10 @@ cargo build --release --locked
 cargo install --path . --locked
 rustamps describe-backends
 ```
+
+If the install succeeds but the command is not found, add Cargo's binary
+directory to `PATH` (normally `$HOME/.cargo/bin` on Unix or
+`%USERPROFILE%\.cargo\bin` on Windows).
 
 `describe-backends` should report the standalone `native` provider and an
 empty `runtime_external_dependencies` list. Python, a Python package install,

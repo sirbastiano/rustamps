@@ -56,6 +56,26 @@
     <p>Start with dataset status and the dry-run plan; both are read-only.</p>
 
     <details class="api-section" open>
+      <summary>Why is <span class="code-inline">rustamps</span> not found after installation?</summary>
+      <div class="api-body">
+        <p>
+          A Conda installation is isolated from the current shell until its
+          environment is activated:
+        </p>
+        <pre><code class="language-bash">conda activate rustamps
+rustamps --version</code></pre>
+        <p>
+          In CI or another non-interactive shell, use
+          <span class="code-inline">conda run -n rustamps rustamps COMMAND</span>.
+          After a source install, ensure Cargo's binary directory is on
+          <span class="code-inline">PATH</span>; the
+          <a href="installation.html">installation guide</a> has commands for
+          Unix and PowerShell.
+        </p>
+      </div>
+    </details>
+
+    <details class="api-section">
       <summary>Why does a run report missing input artifacts?</summary>
       <div class="api-body">
         <p>
