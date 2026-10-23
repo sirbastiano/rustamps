@@ -15,16 +15,16 @@ pub(super) fn write(patch: &Path, output: Stage4Output, ifg_index: &[f64]) -> Re
     );
     payload.insert(
         "ix_weed".to_owned(),
-        MatValue::U8(MatArray {
+        MatValue::Bool(MatArray {
             shape: vec![weed_count, 1],
-            values: output.ix_weed.into_iter().map(u8::from).collect(),
+            values: output.ix_weed,
         }),
     );
     payload.insert(
         "ix_weed2".to_owned(),
-        MatValue::U8(MatArray {
+        MatValue::Bool(MatArray {
             shape: vec![noise_count, 1],
-            values: output.ix_weed2.into_iter().map(u8::from).collect(),
+            values: output.ix_weed2,
         }),
     );
     payload.insert(

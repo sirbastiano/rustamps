@@ -109,6 +109,42 @@ pub fn clap_filter_patch(
     if rows == 0 || cols == 0 || phase.len() != rows * cols || low_pass.len() != phase.len() {
         return Err(Stage2Error::InvalidInput("CLAP patch shapes do not match"));
     }
+    let (mut spectrum, mut adaptive) = smoothed_response(phase, rows, cols);
+    adaptive
+        .iter_mut()
+        .for_each(|value| *value = (value.powf(alpha) - 1.0).max(0.0));
+    for index in 0..spectrum.len() {
+        spectrum[index] *= adaptive[index] * beta + low_pass[index];
+    }
+    fft2(&mut spectrum, rows, cols, true);
+    Ok(spectrum)
+}
+
+/// StaMPS `wrap_filt.m` Goldstein patch filter: the spectrum is weighted by
+/// the median-normalised smoothed response raised to `alpha`, so bins below
+/// the median are attenuated (unlike CLAP, which never weights below one).
+pub fn goldstein_filter_patch(
+    phase: &[Complex64],
+    rows: usize,
+    cols: usize,
+    alpha: f64,
+) -> Result<Vec<Complex64>, Stage2Error> {
+    if rows == 0 || cols == 0 || phase.len() != rows * cols {
+        return Err(Stage2Error::InvalidInput(
+            "Goldstein patch shape does not match",
+        ));
+    }
+    let (mut spectrum, adaptive) = smoothed_response(phase, rows, cols);
+    for index in 0..spectrum.len() {
+        spectrum[index] *= adaptive[index].powf(alpha);
+    }
+    fft2(&mut spectrum, rows, cols, true);
+    Ok(spectrum)
+}
+
+/// Forward spectrum and its 7x7 Gaussian-smoothed, median-normalised
+/// magnitude, as shared by `clap_filt.m` and `wrap_filt.m`.
+fn smoothed_response(phase: &[Complex64], rows: usize, cols: usize) -> (Vec<Complex64>, Vec<f64>) {
     let mut spectrum = phase
         .iter()
         .map(|value| {
@@ -143,14 +179,7 @@ pub fn clap_filter_patch(
     if center != 0.0 {
         adaptive.iter_mut().for_each(|value| *value /= center);
     }
-    adaptive
-        .iter_mut()
-        .for_each(|value| *value = (value.powf(alpha) - 1.0).max(0.0));
-    for index in 0..spectrum.len() {
-        spectrum[index] *= adaptive[index] * beta + low_pass[index];
-    }
-    fft2(&mut spectrum, rows, cols, true);
-    Ok(spectrum)
+    (spectrum, adaptive)
 }
 
 fn window_weight(window: usize, row: usize, col: usize, row_shift: usize, col_shift: usize) -> f64 {
@@ -285,5 +314,20 @@ mod tests {
         for (actual, expected) in output.iter().zip(phase) {
             assert!((*actual - expected).norm() < 1e-10);
         }
+    }
+
+    #[test]
+    fn goldstein_attenuates_weak_bins_unlike_clap() {
+        let phase = (0..64)
+            .map(|index| Complex64::from_polar(1.0, (index * index) as f64 * 0.37))
+            .collect::<Vec<_>>();
+        let identity = goldstein_filter_patch(&phase, 8, 8, 0.0).unwrap();
+        for (actual, expected) in identity.iter().zip(&phase) {
+            assert!((*actual - *expected).norm() < 1e-10);
+        }
+        let goldstein = goldstein_filter_patch(&phase, 8, 8, 0.8).unwrap();
+        let clap = clap_filter_patch(&phase, 8, 8, 0.8, 1.0, &[1.0; 64]).unwrap();
+        let energy = |values: &[Complex64]| values.iter().map(|v| v.norm_sqr()).sum::<f64>();
+        assert!(energy(&goldstein) < energy(&clap));
     }
 }

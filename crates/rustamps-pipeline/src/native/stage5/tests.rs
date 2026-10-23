@@ -70,7 +70,7 @@ fn merged_rc2_is_written_ps_major() {
             amplitude_dispersion: None,
         }],
         xy: Matrix::new(1, 3, vec![1.0, 0.0, 0.0]).unwrap(),
-        xy_origin: [12.0, 45.0],
+        xy_origin: [12.5, 45.5],
     };
     fs::write(temp.0.join("hgt2.mat"), b"stale").unwrap();
     super::write::merged(&temp.0, &base, merged, 2, 3).unwrap();

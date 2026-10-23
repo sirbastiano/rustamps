@@ -103,9 +103,9 @@ different substitutes. Current fail-closed cases include:
   three-pass workflow;
 - Stage 8 kriging substitution.
 
-The Goldstein prefilter uses the conservative CLAP spectrum. This is the one
-intentional speed/accuracy trade: weak spectral bins are preserved, so wrapped
-phase can differ slightly from the historical filter while remaining stable.
+The Goldstein prefilter follows StaMPS `wrap_filt.m`: each patch spectrum is
+weighted by the median-normalised, smoothed response raised to
+`unwrap_gold_alpha`, so bins below the median are attenuated.
 
 ## Artifact and numeric contracts
 

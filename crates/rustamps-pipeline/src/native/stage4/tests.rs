@@ -126,6 +126,9 @@ fn builds_native_delaunay_edges_and_writes_full_weed_contract() {
     );
     assert_eq!(output["ix_weed"].shape(), Some([3, 1].as_slice()));
     assert_eq!(output["ix_weed2"].shape(), Some([3, 1].as_slice()));
+    for key in ["ix_weed", "ix_weed2"] {
+        assert!(matches!(&output[key], MatValue::Bool(array) if array.values == vec![true; 3]));
+    }
     assert_eq!(
         super::super::mat::numeric_f64(&output, "ifg_index").unwrap(),
         vec![1.0, 3.0]

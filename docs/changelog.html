@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#07101f" />
+  <meta name="description" content="Rustamps changelog: scientific parity fixes, artifact changes, and cache invalidation." />
+  <title>Changelog — Rustamps</title>
+  <link rel="icon" href="assets/rustamps-logo.png" type="image/png" />
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script defer src="assets/scripts.js"></script>
+</head>
+<body>
+<div class="site">
+  <aside class="sidebar">
+    <div class="logo">
+      <a href="index.html" aria-label="Rustamps documentation home">
+        <img class="brand-logo" src="assets/rustamps-logo.png" alt="" />
+        <h1>Rustamps</h1>
+      </a>
+    </div>
+    <small>Standalone Rust runtime</small>
+    <nav aria-label="Documentation">
+      <div class="nav-group"><h2>Start here</h2><ul class="nav-list">
+        <li><a href="index.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="installation.html">Installation</a></li>
+        <li><a href="quickstart.html">Quick start</a></li>
+        <li><a href="inputs.html">Inputs</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Guides</h2><ul class="nav-list">
+        <li><a href="usage.html">Run the pipeline</a></li>
+        <li><a href="configuration.html">Configuration</a></li>
+        <li><a href="pipeline-science-guide.html">Science guide</a></li>
+        <li><a href="verification.html">Verification</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Reference</h2><ul class="nav-list">
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="function-reference.html">Command reference</a></li>
+        <li><a href="api/pystamps.html">Historical API</a></li>
+      </ul></div>
+      <div class="nav-group"><h2>Project</h2><ul class="nav-list">
+        <li><a href="testing.html">Testing</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="contributing.html">Contributing</a></li>
+        <li><a href="https://github.com/sirbastiano/rustamps">GitHub ↗</a></li>
+      </ul></div>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><strong>v0.3.0</strong><br />Native Rust · Apache-2.0</div>
+  </aside>
+
+  <main class="content">
+    <div class="breadcrumb">Project / Changelog</div>
+    <span class="eyebrow">Changelog</span>
+    <h1>What changed</h1>
+    <p>Changes that affect scientific output, artifacts, or the supported
+    workflow. Parity statements refer to the reference run
+    <span class="code-inline">InSAR_dataset_test</span> (Hugging Face revision
+    <span class="code-inline">cabed239</span>) and StaMPS revision
+    <span class="code-inline">c159eb8</span>.</p>
+
+    <h2>Unreleased</h2>
+
+    <h3>Parity with StaMPS</h3>
+    <ul>
+      <li><strong>Stage 2 incidence angle.</strong> The mean incidence follows
+      <span class="code-inline">ps_est_gamma_quick.m</span>:
+      <span class="code-inline">inc1.mat</span>, then
+      <span class="code-inline">mean(la)+0.052</span>, then 21°.
+      <span class="code-inline">ps.mean_incidence</span> is no longer read
+      here; Stage 6 still uses it, as <span class="code-inline">ps_unwrap.m</span>
+      does. On PATCH_1 this changes <span class="code-inline">n_trial_wraps</span>
+      from 0.784 to 0.727, the iteration count from 5 to 8, and the selected PS
+      from 80928 to 80938.</li>
+      <li><strong>Stage 5 merge metadata.</strong> The merged
+      <span class="code-inline">ps2.mat</span> takes <span class="code-inline">bperp</span>,
+      <span class="code-inline">ll0</span>, <span class="code-inline">mean_incidence</span>
+      and <span class="code-inline">mean_range</span> from the last patch, as
+      <span class="code-inline">ps_merge_patches.m</span> does, instead of the
+      first. <span class="code-inline">ll0</span> is no longer recomputed,
+      because <span class="code-inline">ps_setref</span> uses it for
+      <span class="code-inline">ref_radius</span> selection.</li>
+      <li><strong>Stage 6 Goldstein prefilter.</strong> The prefilter follows
+      <span class="code-inline">wrap_filt.m</span>: the spectrum is weighted by
+      the median-normalised, smoothed response raised to
+      <span class="code-inline">unwrap_gold_alpha</span>, and the padding is
+      <span class="code-inline">round(n_win/4)</span>. The earlier CLAP-based
+      approximation did not attenuate weak bins.</li>
+      <li><strong>Stage 6 rerun.</strong> Re-running Stage 6 keeps
+      <span class="code-inline">scla2.mat</span> and
+      <span class="code-inline">scla2.npz</span>, so the usual 6 → 7 → 6
+      sequence leaves the Stage 7 estimate in place. Re-running Stage 5 or an
+      earlier stage still removes them.</li>
+    </ul>
+
+    <h3>Artifacts</h3>
+    <ul>
+      <li>Stage 7 also writes <span class="code-inline">scla2.npz</span>, a
+      NumPy archive with the same arrays as <span class="code-inline">scla2.mat</span>.
+      The MAT files remain the inputs for later stages and for verification.</li>
+      <li>Mask variables <span class="code-inline">ix_weed</span> and
+      <span class="code-inline">ix_weed2</span> use the MATLAB logical type.</li>
+    </ul>
+
+    <h3>Cache invalidation</h3>
+    <ul>
+      <li>The Stage 6 cache schema versions were increased (grid, interpolation
+      and space-time caches: 2; solve checkpoints: 5). Caches written by earlier
+      builds are rebuilt on the next run.</li>
+    </ul>
+
+    <h3>Verified result</h3>
+    <p>On PATCH_1, running Stages 1–5 in Rust from the raw
+    <span class="code-inline">pscands.1.*</span> inputs gives 81428 → 80938 →
+    79227 → 77888 PS, with exact <span class="code-inline">ix</span>,
+    <span class="code-inline">keep_ix</span>, <span class="code-inline">ix_weed</span>,
+    <span class="code-inline">ix_weed2</span>, <span class="code-inline">ij</span>,
+    <span class="code-inline">xy</span>, <span class="code-inline">ph2</span> and
+    <span class="code-inline">bp2</span>. <span class="code-inline">K_ps</span>
+    and <span class="code-inline">coh_ps</span> still differ by up to 1.2e-4,
+    because MATLAB evaluates the topographic fit in single precision. Stages 6–8
+    have not been compared numerically.</p>
+
+    <h2>0.3.0</h2>
+    <ul>
+      <li>First standalone Rust release: SNAP preparation and the single-master
+      Stages 1–8, MAT v5/v7.3 I/O, transactional stage publication, checkpointed
+      Stage 6 and the <span class="code-inline">verify</span> command.</li>
+    </ul>
+  </main>
+</div>
+</body>
+</html>

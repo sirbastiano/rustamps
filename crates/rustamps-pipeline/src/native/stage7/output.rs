@@ -53,9 +53,11 @@ pub fn write(
         f32_array(vec![n_ps, n_ifg], smooth_phase),
     );
     smooth.insert("ph_ramp".to_owned(), f64_array(ramp_shape, ramp.to_vec()));
+    super::numpy::write(&transaction.path("scla2.npz"), &scla)
+        .map_err(|error| error.to_string())?;
     write_mat(transaction.path("scla_smooth2.mat"), &smooth).map_err(|error| error.to_string())?;
     write_mat(transaction.path("scla2.mat"), &scla).map_err(|error| error.to_string())?;
     transaction
-        .commit(&["scla_smooth2.mat", "scla2.mat"], "scla2.mat")
+        .commit(&["scla2.npz", "scla_smooth2.mat", "scla2.mat"], "scla2.mat")
         .map_err(|error| error.to_string())
 }

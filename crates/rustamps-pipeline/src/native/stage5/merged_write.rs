@@ -91,13 +91,9 @@ fn write_files(
 ) -> Result<(), String> {
     let n_ps = merged.rows.len();
     let n_ifg = phase.cols;
+    // StaMPS recomputes merged XY from the merged midpoint but keeps the last
+    // patch's ll0, which ps_setref later uses for ref_radius selection.
     let mut ps = base_ps(base, n_ps, n_ifg)?;
-    // StaMPS recomputes merged XY from this midpoint but accidentally retains a
-    // patch-local ll0. Keep the coordinate payload internally consistent.
-    ps.insert(
-        "ll0".to_owned(),
-        f64_array(vec![1, 2], merged.xy_origin.to_vec()),
-    );
     ps.insert(
         "ij".to_owned(),
         f64_array(

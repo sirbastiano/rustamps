@@ -47,9 +47,9 @@ pub fn run(root: &Path, _config: &RunConfig) -> Result<String, PipelineError> {
         }
         n_ifg = Some(loaded.n_ifg);
         master_ix = Some(loaded.master_ix);
-        if base.is_none() {
-            base = Some(loaded.ps);
-        }
+        // ps_merge_patches.m saves ps_new=ps after the loop, so the merged
+        // bperp, ll0, mean_incidence and mean_range come from the last patch.
+        base = Some(loaded.ps);
         patches.push(loaded.patch);
     }
     let merged = merge_patches_with_heading(&patches, resample, Some(heading))

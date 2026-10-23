@@ -141,6 +141,10 @@ Large stacks can take time, but per-interferogram work resumes from matching
 atomic checkpoints. The final `phuw2.mat` is published only after every solve
 succeeds.
 
+Stage 7 also exports `scla2.npz`, a NumPy archive with the same arrays as
+`scla2.mat`. Open it with `numpy.load("/data/run/scla2.npz", allow_pickle=False)`.
+The MAT outputs remain the inputs for subsequent stages and golden verification.
+
 For faster exploratory runs, use one of the explicit coarser-grid profiles:
 
 ```bash
@@ -179,6 +183,7 @@ The static documentation is ready to serve directly from GitHub Pages:
 - [Pipeline science guide](https://sirbastiano.github.io/rustamps/pipeline-science-guide.html)
 - [Architecture](https://sirbastiano.github.io/rustamps/architecture.html)
 - [Verification](https://sirbastiano.github.io/rustamps/verification.html)
+- [Changelog](https://sirbastiano.github.io/rustamps/changelog.html)
 
 After the first push, enable **Settings → Pages → Deploy from a branch**, select
 the default branch, and choose the `/docs` folder. No Jekyll build is required.

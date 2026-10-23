@@ -1,5 +1,5 @@
 use num_complex::{Complex32, Complex64};
-use rustamps_core::stages::stage2::clap_filter_patch;
+use rustamps_core::stages::stage2::goldstein_filter_patch;
 
 pub fn goldstein_global(
     input: &[Complex32],
@@ -17,14 +17,14 @@ pub fn goldstein_global(
             rows.min(cols)
         ));
     }
-    let padding = window / 4;
+    // wrap_filt.m: n_pad=round(n_win*0.25).
+    let padding = (window as f64 * 0.25).round() as usize;
     let extended = window + padding;
     let increment = (window / 2).max(1);
     let row_windows = rows.div_ceil(increment).saturating_sub(1).max(1);
     let col_windows = cols.div_ceil(increment).saturating_sub(1).max(1);
     let mut output = vec![Complex64::new(0.0, 0.0); input.len()];
     let mut patch = vec![Complex64::new(0.0, 0.0); extended * extended];
-    let pass = vec![1.0_f64; patch.len()];
     for row_window in 0..row_windows {
         let (row_start, row_end, row_shift) = bounds(row_window, increment, window, rows);
         for col_window in 0..col_windows {
@@ -36,9 +36,7 @@ pub fn goldstein_global(
                     patch[row * extended + col] = Complex64::new(value.re.into(), value.im.into());
                 }
             }
-            // The core CLAP spectrum is a conservative Goldstein equivalent:
-            // it preserves weak bins instead of attenuating them below unity.
-            let filtered = clap_filter_patch(&patch, extended, extended, alpha, 1.0, &pass)
+            let filtered = goldstein_filter_patch(&patch, extended, extended, alpha)
                 .map_err(|error| error.to_string())?;
             for row in 0..row_end - row_start {
                 for col in 0..col_end - col_start {

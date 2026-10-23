@@ -6,7 +6,8 @@ use rustamps_io::{MatFile, MatValue};
 use super::super::mat::scalar;
 
 // Bump whenever grid, interpolation, or space-time cache semantics change.
-const SCHEMA_VERSION: u64 = 1;
+// 2: Goldstein prefilter follows wrap_filt.m (H^alpha) instead of CLAP.
+const SCHEMA_VERSION: u64 = 2;
 const HASH_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const HASH_PRIME: u64 = 0x0000_0100_0000_01b3;
 const MATLAB_INTEGER_MASK: u64 = (1_u64 << 52) - 1;

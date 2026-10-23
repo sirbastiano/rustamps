@@ -11,7 +11,10 @@ not a runtime dependency.
 | Area | Wrong-output risk | Implemented correction |
 | --- | --- | --- |
 | SNAP metadata | Stage 1 could use RSLC geometry while later stages used stale `heading` or `lambda` | SNAP preparation now derives and writes both values from the master RSLC; invalid lon/lat input fails before output |
-| Stage 2 incidence | Native SNAP incidence could receive the legacy `+0.052` correction twice | Exact incidence now precedes the legacy look-angle fallback |
+| Stage 2 incidence | Preferring `ps.mean_incidence` changed `n_trial_wraps` (0.784 vs 0.727 on the reference PATCH_1) and the selected PS | Follows `ps_est_gamma_quick.m`: `inc1.mat`, then `mean(la)+0.052`, then 21°; `ps.mean_incidence` is used only by Stage 6, as in `ps_unwrap.m` |
+| Stage 5 merge metadata | Merged `bperp`, `ll0`, `mean_incidence` and `mean_range` came from the first patch | Taken from the last patch, as `ps_merge_patches.m` saves `ps_new=ps` after its loop |
+| Stage 6 prefilter | A CLAP-shaped response never attenuated weak spectral bins | Follows `wrap_filt.m` (`H^alpha`, `n_pad=round(n_win/4)`) |
+| Stage 6 rerun | `scla2.mat` was deleted, unlike the StaMPS 6 → 7 → 6 sequence | Preserved on a Stage 6 rerun together with `scla_smooth2.mat` |
 | Stage 3 selection | A null source interferogram could be missed after IFG dropping; incomplete probability caches could be fabricated | Source validity is checked on the full stack and required cache vectors are validated |
 | Stage 5 merge | Missing overlap ownership could permit ambiguous multi-patch output | Every multi-patch input must provide `patch_noover.in` before merge I/O begins |
 | Stage 6 flow | Each negative cycle was advanced once and counted once per unit, while upstream saturates it before one pivot count | Native Rust now saturates each cycle, preserves upstream flow-threshold rounding/order, and rejects zero-net opposing-edge cycles |

@@ -66,7 +66,7 @@ pub fn load(patch: &Path) -> Result<Loaded, String> {
         return Err("Stage 2 geometry contains non-finite values".to_owned());
     }
     let amplitude_dispersion = load_da(patch, n_ps)?;
-    let mean_incidence = load_mean_incidence(patch, &ps)?;
+    let mean_incidence = load_mean_incidence(patch)?;
     Ok(Loaded {
         input: Stage2Input {
             phase,
@@ -130,11 +130,11 @@ fn load_da(patch: &Path, n_ps: usize) -> Result<Vec<f64>, String> {
     Ok(values)
 }
 
-fn load_mean_incidence(patch: &Path, ps: &MatFile) -> Result<f64, String> {
+// ps_est_gamma_quick.m never reads ps.mean_incidence: it uses inc1.mat, then
+// mean(la)+0.052, then 21 degrees. The GAMMA/SNAP la1.mat already stores
+// incidence, but StaMPS still adds 0.052, and n_trial_wraps depends on it.
+fn load_mean_incidence(patch: &Path) -> Result<f64, String> {
     if let Some(value) = angle_file_mean(patch, "inc1.mat", "inc", true)? {
-        return Ok(value);
-    }
-    if let Some(value) = optional_scalar(ps, "mean_incidence").filter(|value| value.is_finite()) {
         return Ok(value);
     }
     if let Some(value) = angle_file_mean(patch, "la1.mat", "la", false)? {
@@ -233,7 +233,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exact_incidence_precedes_legacy_look_angle() {
+    fn look_angle_fallback_ignores_ps_mean_incidence_like_stamps() {
         let root = std::env::temp_dir().join(format!(
             "rustamps-stage2-incidence-{}-{}",
             std::process::id(),
@@ -243,14 +243,7 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).unwrap();
-        let mut ps = MatFile::new();
-        ps.insert(
-            "mean_incidence".to_owned(),
-            MatValue::F64(MatArray {
-                shape: vec![1, 1],
-                values: vec![0.5],
-            }),
-        );
+        assert_eq!(load_mean_incidence(&root).unwrap(), 21_f64.to_radians());
         let mut la = MatFile::new();
         la.insert(
             "la".to_owned(),
@@ -260,7 +253,7 @@ mod tests {
             }),
         );
         write_mat(root.join("la1.mat"), &la).unwrap();
-        assert_eq!(load_mean_incidence(&root, &ps).unwrap(), 0.5);
+        assert_eq!(load_mean_incidence(&root).unwrap(), 0.4 + 0.052);
         let _ = fs::remove_dir_all(root);
     }
 }

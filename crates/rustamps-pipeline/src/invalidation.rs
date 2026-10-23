@@ -43,11 +43,13 @@ const ROOT_PRODUCTS: &[(u8, &[&str])] = &[
             "phuw2.mat",
             // Stage 6 consumes the previous Stage 7 smooth estimate as
             // feedback. Preserve it on a Stage 6 rerun, but invalidate it
-            // whenever Stage 5 or an earlier stage changes.
+            // whenever Stage 5 or an earlier stage changes. StaMPS keeps the
+            // unsmoothed Stage 7 estimate across the 6 -> 7 -> 6 sequence too.
             "scla_smooth2.mat",
+            "scla2.mat",
+            "scla2.npz",
         ],
     ),
-    (7, &["scla2.mat"]),
     (8, &["scn2.mat"]),
 ];
 
@@ -136,6 +138,7 @@ mod tests {
         assert!(!root.join("ps2.mat").exists());
         assert!(!root.join("phuw2.mat").exists());
         assert!(!root.join("scla2.mat").exists());
+        assert!(!root.join("scla2.npz").exists());
         assert!(!root.join("scn2.mat").exists());
         fs::remove_dir_all(root).unwrap();
     }
@@ -146,7 +149,8 @@ mod tests {
         invalidate_downstream(6, "merged", &root, &root).unwrap();
         assert!(root.join("phuw2.mat").exists());
         assert!(root.join("scla_smooth2.mat").exists());
-        assert!(!root.join("scla2.mat").exists());
+        assert!(root.join("scla2.mat").exists());
+        assert!(root.join("scla2.npz").exists());
         assert!(!root.join("scn2.mat").exists());
         fs::remove_dir_all(root).unwrap();
         let _ = patch;
