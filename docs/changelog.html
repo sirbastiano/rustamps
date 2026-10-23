@@ -110,6 +110,22 @@
       builds are rebuilt on the next run.</li>
     </ul>
 
+    <h3>Notebooks</h3>
+    <ul>
+      <li>Notebooks <span class="code-inline">00</span>–<span class="code-inline">04</span>,
+      <span class="code-inline">start_here</span>, <span class="code-inline">start_here_rust</span> and
+      <span class="code-inline">backend_rust_explanation</span> now run the real
+      <span class="code-inline">rustamps</span> binary on the PATCH_1 golden inputs (Stages 1–5) and end in
+      assertions: counts from the original <span class="code-inline">STAMPS.log</span>, bit-exact index, mask and
+      coordinate arrays, declared float bounds for the rest, negative controls, determinism across worker counts and the
+      runtime boundary. They need a built binary (<span class="code-inline">cargo build --release</span>, or
+      <span class="code-inline">RUSTAMPS_BIN</span>) and the golden PATCH_1 files; missing inputs fail the notebook.
+      Shared helpers: <span class="code-inline">notebooks/rustamps_nb.py</span>.</li>
+      <li>Notebook <span class="code-inline">05</span> (SNAP/CDSE preprocessing) stops at a prerequisite gate when SNAP
+      <span class="code-inline">gpt</span>, CDSE credentials, <span class="code-inline">phidown</span> or
+      <span class="code-inline">sarpyx</span> are missing; it is not proven here. Stages 6–8 are not covered by any notebook.</li>
+    </ul>
+
     <h3>Verified result</h3>
     <p>On PATCH_1, running Stages 1–5 in Rust from the raw
     <span class="code-inline">pscands.1.*</span> inputs gives 81428 → 80938 →

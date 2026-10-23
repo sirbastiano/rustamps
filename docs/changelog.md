@@ -39,6 +39,16 @@ Parity statements refer to the reference run `InSAR_dataset_test`
   space-time caches: 2; solve checkpoints: 5). Caches written by earlier builds
   are rebuilt on the next run.
 
+### Notebooks
+
+- Notebooks `00`-`04`, `start_here`, `start_here_rust` and `backend_rust_explanation` now run the real `rustamps`
+  binary on the PATCH_1 golden inputs (Stages 1-5) and end in assertions: counts from the original `STAMPS.log`,
+  bit-exact index/mask/coordinate arrays, declared float bounds for the rest, negative controls, determinism across
+  worker counts and the runtime boundary. They need a built binary (`cargo build --release`, or `RUSTAMPS_BIN`) and the
+  golden PATCH_1 files; missing inputs fail the notebook. Shared helpers: `notebooks/rustamps_nb.py`.
+- Notebook `05` (SNAP/CDSE preprocessing) stops at a prerequisite gate when SNAP `gpt`, CDSE credentials, `phidown` or
+  `sarpyx` are missing; it is not proven here. Stages 6-8 are not covered by any notebook.
+
 ### Verified result
 
 On PATCH_1, running Stages 1–5 in Rust from the raw `pscands.1.*` inputs gives
